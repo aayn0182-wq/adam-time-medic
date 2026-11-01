@@ -18,8 +18,10 @@ export const GFX = (() => { const q = new URLSearchParams(location.search).get('
 export const ANISO = { v: GFX === 'low' ? 2 : 8 };
 const _tl = new THREE.TextureLoader(), _tc = {}, _allTex = [];
 export function setAniso(a) { ANISO.v = a; _allTex.forEach(t => { t.anisotropy = a; t.needsUpdate = true; }); }
+const TEX2K = new Set(['street', 'plaster', 'brick', 'roof']);
 export function ptex(name, rep, normal = false) { // rep = metres per tile
-  const key = name + (normal ? '_n' : GFX === 'low' ? '_lo' : '');
+  const hi = GFX !== 'low' && TEX2K.has(name); // 2K ambientCG colour (+1K normals) on Medium/High; Low keeps the 1K set
+  const key = name + (normal ? (hi ? '_n2k' : '_n') : hi ? '_2k' : '');
   const t = _tl.load('textures/' + key + '.jpg'); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1 / rep, 1 / rep);
   if (!normal) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = ANISO.v; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; _allTex.push(t); return t;
 }
@@ -299,7 +301,9 @@ const boxG = new THREE.BoxGeometry(1, 1, 1);
 const B = (parent, mat, sx, sy, sz, x, y, z, shadow = true) => { const tex = mat.isMeshStandardMaterial; const m = new THREE.Mesh(tex ? boxUV(sx, sy, sz) : boxG, mat); if (!tex) m.scale.set(sx, sy, sz); m.position.set(x, y, z); m.castShadow = shadow; m.receiveShadow = true; parent.add(m); return m; };
 
 // building: local front face at x=0 facing +x, spans z in [-w/2,w/2], depth d behind (x<0)
+export const roofSpots = [];
 function building(fx, fz, nx, nz, w, h, opts = {}) {
+  if (!opts.plain) roofSpots.push({ x: fx - nx * 3.2, z: fz - nz * 3.2, y: h + 0.7 });
   const d = 7, m = facadeMats[Math.floor(rnd() * facadeMats.length)];
   const grp = new THREE.Group(); grp.position.set(fx, 0, fz); grp.rotation.y = Math.atan2(-nz, nx); scene.add(grp);
   B(grp, m, d, h, w, -d / 2, h / 2, 0);

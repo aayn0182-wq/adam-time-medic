@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { roofSpots, softSprite } from './world.js';
 import { scene, P, col, clamp, sstep, lerp, R, toon, sun, sky, updateSmoke, updateFountain, craterGlow, smokeTex, glowTex, hazes, resolve, inHarbor, walkable, streets, harbor, boat, beacon, beaconRing, rubMat, mix, hemi, amb, vesMat, sommaMat, blockers, blockedBy, fountains, fires, stalls, districts, colliders, woodMat, GFX, setAniso, export_water, boats } from './world.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { ITEMS, HOTBAR, INJURIES, Inventory } from './items.js';
@@ -603,6 +604,7 @@ function updateDebris(dt) {
         d.landed = true; d.ring.visible = false; d.sh.visible = false; const dist = Math.hypot(player.x - d.x, player.z - d.z);
         Sfx.crash(clamp(1.2 - dist / 25, 0.15, 1)); G.shake = Math.max(G.shake, clamp(0.06 - dist * 0.004, 0.005, 0.06));
         if (G.state === 'play' || G.state === 'medic') { if (dist < 1.3) damage(26); else if (dist < 2.1) damage(12); else if (dist < 5) G.dodged++; }
+        if (Math.random() < 0.15 + 0.35 * clamp(1 - G.timeLeft / GAME.duration)) fireFX.ignite(d.x + R(-0.5, 0.5), d.z + R(-0.5, 0.5));
         for (let k = 0; k < 8; k++) { const ds = dustSprites[dustIdx++ % dustSprites.length]; Object.assign(ds, { t: 0, a: R(0, 6.28), v: R(0.8, 2.4), u: R(0.3, 1.2), x: d.x, z: d.z }); ds.s.visible = true; }
       }
     } else if (d.t > d.dur + 25) { scene.remove(d.rock, d.sh, d.ring); debrisList.splice(i, 1); }
@@ -991,33 +993,62 @@ if (MOBILE) { sun.shadow.mapSize.set(1024, 1024); }
   // extra goods on market stalls: fruit pyramids & cloth rolls
   stalls.forEach(([x, z], i) => { for (let k = 0; k < 6; k++) { const f = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), [grapeM, figM, breadM][(i + k) % 3]); f.position.set(x + 0.9 + R(-0.2, 0.2), 0.95, z + R(-0.9, 0.9)); scene.add(f); } });
 }
-// ---- ambient crowd ----
+// ---- ambient crowd: townsfolk who start fleeing toward the harbor as the eruption worsens ----
 const crowd = [];
-{ const NC = Math.round(18 * Q), sts = streets.filter(s => s.name !== 'Temple'), styles = ['short', 'bun', 'long', 'curly', 'bald'];
+const crowdSts = streets.filter(s => s.name !== 'Temple'), DECU = streets[1];
+const rpOf = st => new THREE.Vector2(R(st.x0 + 1, st.x1 - 1), R(st.z0 + 1, st.z1 - 1));
+{ const NC = Math.round(24 * Q), styles = ['short', 'bun', 'long', 'curly', 'bald'];
   for (let i = 0; i < NC; i++) { const female = i % 2 === 1, o = { skin: i % 4, tunic: (i * 3 + 1) % 10, hair: (i * 2) % 5, style: female ? ['bun', 'long', 'curly'][i % 3] : styles[i % 5], female, beard: !female && i % 3 === 0, load: i % 4 === 0 ? 'basket' : i % 7 === 3 ? 'amphora' : null };
-    const c = makeCitizen(o); scene.add(c.root); const st = i % 3 === 0 ? streets[3] : sts[i % sts.length];
-    const rp = () => new THREE.Vector2(R(st.x0 + 1, st.x1 - 1), R(st.z0 + 1, st.z1 - 1));
-    let p = rp(); for (let k = 0; k < 10 && (Math.hypot(p.x - player.x, p.y - player.z) < 6 || !walkable(p.x, p.y, 0.5)); k++) p = rp();
-    crowd.push({ ...c, st, rp, pos: p, tgt: rp(), base: R(1.0, 1.5), speed: 0, yaw: R(0, 6), phase: R(0, 6), idle: R(0, 3), talk: R(0, 6) }); } }
-function updateCrowd(t, dt, panic) {
+    const c = makeCitizen(o); scene.add(c.root); const st = i % 3 === 0 ? streets[3] : crowdSts[i % crowdSts.length];
+    let p = rpOf(st); for (let k = 0; k < 10 && (Math.hypot(p.x - player.x, p.y - player.z) < 6 || !walkable(p.x, p.y, 0.5)); k++) p = rpOf(st);
+    const cc = { ...c, st, pos: p, base: R(1.0, 1.5), speed: 0, yaw: R(0, 6), phase: R(0, 6), idle: R(0, 3), talk: R(0, 6), th: R(0.0, 0.85), fear: 0, act: null, actT: 0 };
+    cc.rp = () => rpOf(cc.st); cc.tgt = cc.rp(); crowd.push(cc); } }
+function inDecu(x, z) { return z > DECU.z0 + 0.5 && z < DECU.z1 - 0.5 && x > DECU.x0 && x < DECU.x1; }
+function fleeTarget(c) { // street -> Decumanus junction -> harbor end of the Decumanus
+  if (inDecu(c.pos.x, c.pos.y) || c.st === DECU) return new THREE.Vector2(R(49, 52), R(DECU.z0 + 1.5, DECU.z1 - 1.5));
+  return new THREE.Vector2((c.st.x0 + c.st.x1) / 2 + R(-2.5, 2.5), R(-32, -28));
+}
+function respawnFar(c) { for (let k = 0; k < 12; k++) { const st = crowdSts[(Math.random() * crowdSts.length) | 0], p = rpOf(st);
+    if (walkable(p.x, p.y, 0.5) && Math.hypot(p.x - player.x, p.y - player.z) > 28) { c.st = st; c.pos.copy(p); c.tgt = fleeTarget(c); return; } } }
+let shoutCD = 0, coughCD = 0;
+function updateCrowd(t, dt, prog, final) {
+  shoutCD -= dt; coughCD -= dt;
   for (const c of crowd) {
+    c.fear = final ? 1 : sstep(c.th, c.th + 0.12, prog); const fleeing = c.fear > 0.5;
+    const pdist = Math.hypot(c.pos.x - player.x, c.pos.y - player.z);
+    const far = pdist > 70; c.root.visible = !far; // LOD: freeze far-away people entirely
+    if (far && !fleeing) continue;
+    if (fleeing && !c.fleeing) { c.fleeing = true; c.tgt = fleeTarget(c); c.idle = 0; }
+    if (!fleeing && c.fleeing) { c.fleeing = false; c.tgt = c.rp(); }
+    // panic actions: stop to cough, or stop to stare at the volcano
+    if (fleeing && !c.act && Math.random() < dt * 0.06 * (0.5 + prog)) { c.act = Math.random() < 0.6 ? 'cough' : 'look'; c.actT = c.act === 'cough' ? R(1.4, 2.4) : R(1.2, 2.2);
+      if (c.act === 'cough' && pdist < 14 && coughCD <= 0) { coughCD = 2.5; Sfx.cough && Sfx.cough(clamp(1 - pdist / 14) * 0.6); }
+      if (c.act === 'look' && pdist < 16 && shoutCD <= 0 && Math.random() < 0.6) { shoutCD = 3; Sfx.shout && Sfx.shout(clamp(1 - pdist / 16)); } }
+    if (c.act) { c.actT -= dt; if (c.actT <= 0) c.act = null; }
     const dx = c.tgt.x - c.pos.x, dz = c.tgt.y - c.pos.y, d = Math.hypot(dx, dz);
-    if (c.idle > 0 && panic < 0.5) { c.idle -= dt; c.speed = 0; }
-    else if (d < 0.6) { c.tgt = c.rp(); c.idle = panic > 0.5 ? 0 : R(1, 5); }
-    else { const sp = c.base * (1 + panic * 2.4);
+    if (c.act) c.speed = 0;
+    else if (c.idle > 0 && !fleeing) { c.idle -= dt; c.speed = 0; }
+    else if (d < 0.8) { if (fleeing) { if (inDecu(c.pos.x, c.pos.y) && c.pos.x > 47) { if (pdist > 25) respawnFar(c); else c.tgt = new THREE.Vector2(R(53, 64), R(-42, -18)); } else c.tgt = fleeTarget(c); } else { c.tgt = c.rp(); c.idle = R(1, 5); } }
+    else { const sp = c.base * lerp(1, 3.2, c.fear);
       let [nx, nz] = resolve(c.pos.x, c.pos.y, c.pos.x + dx / d * sp * dt, c.pos.y + dz / d * sp * dt, 0.3);
-      const pd = Math.hypot(nx - player.x, nz - player.z); if (pd < 0.9) { nx += (nx - player.x) / pd * (0.9 - pd); nz += (nz - player.z) / pd * (0.9 - pd); }
-      const moved = Math.hypot(nx - c.pos.x, nz - c.pos.y); c.speed = moved / Math.max(dt, 1e-4); if (moved < sp * dt * 0.2) c.tgt = c.rp();
+      // jostle: shove other fleeing people and the player in narrow alleys
+      for (const o of crowd) { if (o === c || !o.root.visible) continue; const ox = nx - o.pos.x, oz = nz - o.pos.y, od = Math.hypot(ox, oz); if (od < 0.7 && od > 1e-3) { nx += ox / od * (0.7 - od) * 0.5; nz += oz / od * (0.7 - od) * 0.5; } }
+      const pd = Math.hypot(nx - player.x, nz - player.z); if (pd < 0.9 && pd > 1e-3) { nx += (nx - player.x) / pd * (0.9 - pd); nz += (nz - player.z) / pd * (0.9 - pd);
+        if (fleeing && G.state === 'play') { const [px, pz] = resolve(player.x, player.z, player.x - (nx - player.x) / pd * 0.6 * dt * sp, player.z - (nz - player.z) / pd * 0.6 * dt * sp, 0.35); player.x = px; player.z = pz; } }
+      const moved = Math.hypot(nx - c.pos.x, nz - c.pos.y); c.speed = moved / Math.max(dt, 1e-4); if (moved < sp * dt * 0.2) { c.stuck = (c.stuck || 0) + dt; if (c.stuck > 0.6) { c.stuck = 0; c.tgt = fleeing ? fleeTarget(c) : c.rp(); } } else c.stuck = 0;
       c.pos.set(nx, nz); const ty = Math.atan2(dx, dz); c.yaw += Math.atan2(Math.sin(ty - c.yaw), Math.cos(ty - c.yaw)) * (1 - Math.exp(-8 * dt)); }
-    // pose
+    if (c.act === 'look') { const ty = Math.atan2(-40 - c.pos.x, -430 - c.pos.y); c.yaw += Math.atan2(Math.sin(ty - c.yaw), Math.cos(ty - c.yaw)) * (1 - Math.exp(-5 * dt)); }
+    // procedural pose (fallback people)
     const { body, legs, arms, head } = c, k = clamp(c.speed / 4); c.phase += dt * (2 + c.speed * 1.6);
-    body.position.y = Math.abs(Math.sin(c.phase)) * 0.05 * k; body.rotation.x = 0.1 * k + 0.12 * panic;
+    body.position.y = Math.abs(Math.sin(c.phase)) * 0.05 * k; body.rotation.x = 0.1 * k + 0.12 * c.fear + (c.act === 'cough' ? 0.45 : 0);
     legs.forEach((l, i) => l.rotation.x = Math.sin(c.phase + i * Math.PI) * 0.75 * k);
-    if (panic > 0.5) arms.forEach((a, i) => a.rotation.set(-2.6 + Math.sin(c.phase * 1.3 + i) * 0.4, 0, (i ? -1 : 1) * 0.3));
+    if (c.act === 'cough') { arms[0].rotation.set(-2.2, 0, 0.5); arms[1].rotation.set(-0.3, 0, -0.1); head.rotation.set(0.3, 0, 0); }
+    else if (c.act === 'look') { arms.forEach((a, i) => a.rotation.set(-0.4, 0, (i ? -1 : 1) * 0.2)); head.rotation.set(-0.5, 0, 0); }
+    else if (fleeing) arms.forEach((a, i) => a.rotation.set(-Math.sin(c.phase + i * Math.PI) * 0.9 * k - 0.3, 0, (i ? -1 : 1) * 0.15));
     else if (c.speed < 0.1) { const g = Math.sin(t * 2.2 + c.talk); arms[0].rotation.set(-0.3 - 0.5 * Math.max(0, g), 0, 0.15); arms[1].rotation.set(-0.2, 0, -0.1 - 0.2 * Math.max(0, -g)); head.rotation.set(0, Math.sin(t * 0.6 + c.talk) * 0.5, 0); }
     else { arms.forEach((a, i) => a.rotation.set(-Math.sin(c.phase + i * Math.PI) * 0.55 * k, 0, (i ? -1 : 1) * 0.08)); head.rotation.set(0, 0, 0); }
     if (c.blink) { const bl = (t * 0.7 + c.phase * 0.01 + c.talk) % 4 < 0.12 ? 0.1 : 1; c.blink.forEach(e => e.scale.y = bl); }
-    c.root.position.set(c.pos.x, 0, c.pos.y); c.root.rotation.y = c.yaw; animModel(c, dt, panic);
+    c.root.position.set(c.pos.x, 0, c.pos.y); c.root.rotation.y = c.yaw; animModel(c, dt, c.fear);
   }
 }
 
@@ -1130,7 +1161,8 @@ function attachModel(c) {
   let seat = null; if (c.injury && INJURIES[c.injury].pose !== 'lie') { seat = new THREE.Mesh(new RoundedBoxGeometry(0.55, 0.42, 0.5, 2, 0.04), seatMat); seat.position.set(0, 0.21, -0.12); seat.castShadow = seat.receiveShadow = true; c.root.add(seat); }
   const mixer = new THREE.AnimationMixer(rig), act = {}; for (const [k, n] of Object.entries(CLIP)) if (CH.clips[n]) { act[k] = mixer.clipAction(CH.clips[n]); }
   if (act.Lie_Idle) { act.Lie_Idle.setLoop(THREE.LoopOnce, 1); act.Lie_Idle.clampWhenFinished = true; }
-  c.md = { wrap, rig, mixer, act, cur: null, acc: 0, seat }; mixer.timeScale = R(0.92, 1.08);
+  const bn = {}; rig.traverse(o => { if (o.isBone) { if (o.name === 'spine_03') bn.sp = o; if (o.name === 'Head') bn.hd = o; if (o.name === 'upperarm_r') bn.ua = o; if (o.name === 'lowerarm_r') bn.la = o; } });
+  c.md = { wrap, rig, mixer, act, cur: null, acc: 0, seat, bn }; mixer.timeScale = R(0.92, 1.08);
 }
 function animModel(c, dt, panic) {
   CLOTH_T.value = performance.now() / 1000;
@@ -1144,7 +1176,11 @@ function animModel(c, dt, panic) {
   const a = md.act[clip] || md.act.Idle; if (a && md.cur !== a) { a.reset(); if (clip === 'Lie_Idle') a.time = a.getClip().duration - 0.01; a.setEffectiveWeight(1).fadeIn(0.3).play(); if (md.cur) md.cur.fadeOut(0.3); md.cur = a; }
   if (a) a.timeScale = ts;
   const dd = Math.hypot(c.pos.x - player.x, c.pos.y - player.z); md.acc += dt; const step = dd > 45 ? 0.1 : dd > 22 ? 0.033 : 0;
-  if (md.acc >= step) { md.mixer.update(md.acc); md.acc = 0; }
+  if (md.acc >= step) { md.mixer.update(md.acc); md.acc = 0;
+    if (c.act && md.bn) { const b = md.bn; // additive panic poses on top of the idle clip
+      if (c.act === 'cough') { b.sp && (b.sp.rotation.x += 0.45); b.hd && (b.hd.rotation.x += 0.25); b.ua && (b.ua.rotation.x -= 1.1); b.la && (b.la.rotation.x -= 1.6); }
+      else { b.hd && (b.hd.rotation.x -= 0.5); b.sp && (b.sp.rotation.x -= 0.12); } } }
+  if (c.act && md.wrap) md.wrap.position.z = 0;
 }
 if (CHARS_ON) {
   const ld = new GLTFLoader(), load = u => new Promise((res, rej) => ld.load('models/' + u + '.glb', res, undefined, rej));
@@ -1182,8 +1218,9 @@ const warn = document.createElement('div'); warn.id = 'warn'; warn.innerHTML = '
 let ambAcc = 0, rumbleT = 25;
 function polishUpdate(dt, t, active, doom, prog) {
   vibUpdate(dt, t, doom);
+  fireFX.update(t, dt, prog, doom);
   const paused = G.state === 'paused' || G.state === 'shop' || G.state === 'start';
-  if (!paused) { const panic = clamp((90 - G.timeLeft) / 30) * (G.state === 'intro' ? 0 : 1); updateCrowd(t, dt, panic); updatePigeons(t, dt); }
+  if (!paused) { const pg = G.state === 'intro' ? 0 : clamp(1 - G.timeLeft / GAME.duration); updateCrowd(t, dt, pg, G.state !== 'intro' && G.timeLeft < 60); updatePigeons(t, dt); }
   motes.pts.material.opacity = 0.35 * (1 - doom) * (1 - prog * 0.6); motes.pts.visible = motes.pts.material.opacity > 0.02; updateParticles(motes, t * 0.3, camera.position.x, camera.position.z, 0.04, false);
   // surge
   const surging = (active || G.state === 'wave') && G.timeLeft < 60;
@@ -1232,7 +1269,37 @@ function tutEnd() { G.tut = null; tutEl.classList.remove('on'); try { localStora
 function tutKey(code) { const s = G.tut; if (!s) return; if (code === 'Enter') return tutEnd(); if (code === 'KeyR' || code === 'KeyT') s.rt = 1; if (code === 'KeyM') s.m = 1; }
 function tutUpdate(dt) { const s = G.tut; if (!s || G.state !== 'play') return; s.st += dt; s.dist += Math.hypot(player.x - s.px, player.z - s.pz); s.px = player.x; s.pz = player.z; if (keys.ShiftLeft && player.speed > 5) s.spr += dt;
   if (TUT[s.i].done(s)) { Sfx.chime(); s.i++; s.st = 0; if (s.i >= TUT.length) tutEnd(); else tutShow(); } }
-window.__polish = { crowd, pigeons, tutEnd, get tut() { return G.tut; } };
+// ---- burning roofs + debris fires: soft sprite flames and smoke columns that grow as the eruption worsens ----
+const fireFX = (() => {
+  const flameTex = softSprite('rgba(255,240,200,1)', 'rgba(255,120,20,0)'), smk = softSprite('rgba(255,255,255,0.9)', 'rgba(255,255,255,0)', 40);
+  const spots = []; const pool = [...roofSpots].sort(() => Math.random() - 0.5); const NR = Math.round((MOBILE ? 5 : 10));
+  for (const s of pool) { if (spots.length >= NR) break; if (spots.every(o => Math.hypot(o.x - s.x, o.z - s.z) > 14)) spots.push(s); }
+  const mk = (x, y, z, big, on) => { const g = { x, y, z, big, on, life: 0, fl: [], sm: [] };
+    for (let i = 0; i < (big ? 5 : 3); i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: flameTex, color: col('#ff8a30'), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 })); s.userData = { ph: R(0, 6), ox: R(-0.8, 0.8) * (big ? 1.6 : 0.6), oz: R(-0.8, 0.8) * (big ? 1.6 : 0.6) }; scene.add(s); g.fl.push(s); }
+    for (let i = 0; i < (big ? 16 : 8); i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: smk, color: col('#3a3330'), depthWrite: false, transparent: true, opacity: 0, rotation: R(0, 6) })); s.userData = { h: i / (big ? 16 : 8), sp: R(0.8, 1.2), a: R(0, 6) }; scene.add(s); g.sm.push(s); }
+    return g; };
+  const roofs = spots.map((s, i) => Object.assign(mk(s.x, s.y, s.z, true, 0), { th: 0.05 + (i / spots.length) * 0.75 }));
+  const ground = []; for (let i = 0; i < (MOBILE ? 3 : 6); i++) ground.push(mk(0, 0, 0, false, 0));
+  let gi = 0;
+  function ignite(x, z) { const g = ground[gi++ % ground.length]; Object.assign(g, { x, y: 0.1, z, on: 0.01, life: R(18, 30) }); }
+  function update(t, dt, prog, doom) {
+    const wind = 0.9;
+    for (const g of [...roofs, ...ground]) {
+      if (g.th !== undefined) g.on = clamp((prog - g.th) / 0.15) * (G.state === 'start' ? 0 : 1);
+      else if (g.life > 0) { g.life -= dt; g.on = Math.min(1, g.on + dt * 0.5) * clamp(g.life / 4); } else g.on = 0;
+      const vis = g.on > 0.01 && Math.hypot(g.x - player.x, g.z - player.z) < 120;
+      const k = g.on, H = g.big ? 6 + 26 * k * (0.5 + prog) : 3 + 5 * k;
+      g.fl.forEach((s, i) => { s.visible = vis; if (!vis) return; const u = s.userData, f = 0.75 + 0.15 * Math.sin(t * 7 + u.ph) + 0.1 * Math.sin(t * 13.3 + u.ph * 2);
+        const sz = (g.big ? 3.6 : 1.1) * (0.6 + 0.6 * k) * f; s.position.set(g.x + u.ox, g.y + sz * 0.45, g.z + u.oz); s.scale.set(sz * 0.8, sz * 1.25, 1); s.material.opacity = 0.75 * k; });
+      g.sm.forEach(s => { s.visible = vis; if (!vis) return; const u = s.userData, h = (u.h + t * 0.05 * u.sp) % 1;
+        s.position.set(g.x + h * H * 0.35 * wind + Math.sin(u.a + t * 0.3) * 0.4, g.y + 0.8 + h * H, g.z + Math.cos(u.a) * 0.4 - h * H * 0.15);
+        const sz = (g.big ? 3.5 : 1.4) + h * H * 0.55; s.scale.set(sz, sz, 1); s.material.rotation += dt * 0.08 * (u.sp - 1);
+        s.material.opacity = k * 0.8 * sstep(0, 0.1, h) * (1 - sstep(0.6, 1, h)); s.material.color.setRGB(0.24 + 0.2 * (1 - h) * (1 - doom), 0.2 + 0.08 * (1 - h), 0.18); });
+    }
+  }
+  return { update, ignite, roofs, ground };
+})();
+window.__polish = { fires: fireFX, crowd, pigeons, tutEnd, get tut() { return G.tut; } };
 
 // ================= VIBRANCY: greenery, frescoes, signs, laundry, produce, water, sun =================
 const laundry = [];
