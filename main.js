@@ -14,7 +14,7 @@ const GAME = { duration: 390, maxHp: 100, walk: 4.2, sprint: 7.0, eye: 1.68 };
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.domElement.className = 'gl'; document.body.prepend(renderer.domElement);
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.2;
 scene.fog = new THREE.FogExp2(col('#cfe6fa'), 0.0018);
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 3000); scene.add(camera);
 sun.shadow.mapSize.set(GFX === 'high' ? 4096 : 2048, GFX === 'high' ? 4096 : 2048); sun.shadow.radius = 3;
@@ -85,7 +85,7 @@ function drawDial(timeLeft, barFrac, health, hitFlash) {
 function fmt(s) { s = Math.max(0, Math.ceil(s)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; }
 
 // ---------- post-processing (painterly, no grain) ----------
-setAniso(Math.min(renderer.capabilities.getMaxAnisotropy(), GFX === 'low' ? 2 : GFX === 'medium' ? 4 : 8));
+setAniso(Math.min(renderer.capabilities.getMaxAnisotropy(), GFX === 'low' ? 4 : 16));
 // MSAA render target (crisp edges instead of the old smear filter)
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: GFX === 'low' ? 0 : 4 }));
 composer.addPass(new RenderPass(scene, camera));
@@ -94,7 +94,7 @@ let gtao = null; if (GFX === 'high' && HQTEST && /[?&]ao=1/.test(location.search
 const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.28, 0.45, 0.9); composer.addPass(bloom);
 composer.addPass(new OutputPass());
 const paint = new ShaderPass({
-  uniforms: { tDiffuse: { value: null }, sunP: { value: new THREE.Vector3(0.5, 0.8, 0) }, shaft: { value: GFX === 'low' ? 0 : 1 }, sat: { value: 1.25 }, res: { value: new THREE.Vector2(1, 1) }, navy: { value: col(P.navy) }, lava: { value: col(P.lava) } },
+  uniforms: { tDiffuse: { value: null }, sunP: { value: new THREE.Vector3(0.5, 0.8, 0) }, shaft: { value: 0 }, sat: { value: 1.25 }, res: { value: new THREE.Vector2(1, 1) }, navy: { value: col(P.navy) }, lava: { value: col(P.lava) } },
   vertexShader: 'varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
   fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 res; uniform vec3 navy, lava, sunP; uniform float shaft, sat; varying vec2 vUv;
   void main(){ vec3 col=texture2D(tDiffuse,vUv).rgb;
@@ -106,7 +106,7 @@ const paint = new ShaderPass({
     col = mix(col, col*0.8+navy*0.25, (1.0-smoothstep(0.0,0.3,l))*0.15);
     col = mix(col, col*vec3(1.06,0.98,0.9)+lava*0.04, smoothstep(0.4,1.0,l)*0.5);
     col = mix(vec3(dot(col,vec3(0.299,0.587,0.114))), col, sat); col *= vec3(1.03, 1.0, 0.95);
-    vec2 d=vUv-0.5; col *= 1.0 - dot(d,d)*0.3;
+    
     gl_FragColor=vec4(col,1.0); }`
 });
 composer.addPass(paint);
@@ -114,7 +114,7 @@ const TEST = /[?&]test=1/.test(location.search);
 const MOBILE = /[?&]touch=1/.test(location.search) || matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 if (MOBILE) document.body.classList.add('touch');
 const touchMove = { on: false, x: 0, z: 0 };
-const PR = { low: 0.75, medium: 1.25, high: 2 };
+const PR = { low: 1, medium: 1.5, high: 2 };
 let pixelRatio = TEST && !/hq=1/.test(location.search) ? 0.5 : Math.min(devicePixelRatio || 1, PR[GFX]);
 function resize() {
   renderer.setPixelRatio(pixelRatio); renderer.setSize(innerWidth, innerHeight, false); composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight);
@@ -130,7 +130,7 @@ function particleField(n, color, size, additive) {
   const m = new THREE.PointsMaterial({ map: glowTex, color: col(color), size, transparent: true, depthWrite: false, opacity: additive ? 1 : 0.75, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending });
   const pts = new THREE.Points(g, m); pts.frustumCulled = false; scene.add(pts); return { g, p, seeds, n, pts };
 }
-const ash = particleField(2500, '#b8aca4', 0.05, false), embers = particleField(220, '#ffa040', 0.07, true);
+const ash = particleField(700, '#c8bcb4', 0.09, false), embers = particleField(220, '#ffa040', 0.07, true);
 const wrap = (v, c) => c - 12 + (((v - c + 12) % 24) + 24) % 24;
 function updateParticles(f, t, cx, cz, fall, rise) {
   for (let i = 0; i < f.n; i++) { const [x, y, z, sp, ph] = f.seeds[i];
@@ -738,13 +738,13 @@ function onKey(code) {
 
 // ================= MAIN LOOP =================
 const clock = new THREE.Clock(); let fpsAcc = 0, fpsN = 0;
-const nz = (t, f, o) => Math.sin(t * f + o) * 0.6 + Math.sin(t * f * 2.31 + o * 1.7) * 0.4;
+const nz = (t, f, o) => Math.sin(t * f * 0.45 + o) * 0.6 + Math.sin(t * f * 0.9 + o * 1.7) * 0.4;
 let worldT = 0;
 const DAY = { sun: col('#ffe0a8'), hemiS: col('#a8d4ff'), hemiG: col('#d8a070'), fog: col('#cfe6fa') }, DOOM = { sun: col('#ff7a3a'), hemiS: col('#4a5a88'), hemiG: col('#2a1c16'), fog: col('#4a2c22') };
 const tmpC = new THREE.Color(), VES_DAY = col('#d8c8b4'), VES_DOOM = col('#3a2e2a'), SOM_DAY = col('#b8b8c0'), SOM_DOOM = col('#241c1a');
 function frame() {
   requestAnimationFrame(frame);
-  const dt = Math.min(clock.getDelta(), TEST ? 0.2 : 0.05); window.__frames = (window.__frames || 0) + 1; worldT += dt; const t = worldT;
+  const rawDt = Math.min(clock.getDelta(), TEST ? 0.2 : 0.05); window.__sdt = window.__sdt ? window.__sdt + (rawDt - window.__sdt) * 0.2 : rawDt; const dt = TEST ? rawDt : window.__sdt; window.__frames = (window.__frames || 0) + 1; worldT += dt; const t = worldT;
   const active = G.state === 'play' || G.state === 'medic';
   if (active) {
     G.t += dt; G.timeLeft -= dt; if (G.timeLeft <= 0) { G.timeLeft = 0; endGame(inHarbor(player.x, player.z) && G.saved > 0 ? 'win' : 'time'); }
@@ -768,7 +768,7 @@ function frame() {
   hemi.intensity = lerp(1.25, 0.6, doom); amb.intensity = lerp(0.55, 0.3, doom);
   scene.fog.color.lerpColors(DAY.fog, DOOM.fog, doom); scene.fog.density = lerp(0.0014 + 0.0025 * prog, 0.014, doom) + (G.end === 'time' ? 0.03 * sstep(1.5, 3.2, G.endT) : 0);
   sky.material.uniforms.uDoom.value = doom; vesMat.emissiveIntensity = lerp(0.04, 1.15, Math.max(doom, prog * prog * 0.25)); vesMat.color.lerpColors(VES_DAY, VES_DOOM, doom); sommaMat.color.lerpColors(SOM_DAY, SOM_DOOM, doom);
-  renderer.toneMappingExposure = lerp(1.1, 0.95, doom);
+  renderer.toneMappingExposure = lerp(1.2, 0.95, doom);
   // end sequences
   if (G.end) {
     G.endT += dt; const e = G.endT;
@@ -785,7 +785,7 @@ function frame() {
   }
   // camera
   const ph = player.phase * Math.PI, bob = clamp(player.speed / 5) * (player.riding ? 0.3 : 1);
-  const bobY = -Math.abs(Math.sin(ph)) * 0.04 * bob, bobX = Math.cos(ph) * 0.025 * bob;
+  const bobY = -Math.abs(Math.sin(ph)) * 0.022 * bob, bobX = Math.cos(ph) * 0.012 * bob;
   const breathAmp = G.exhausted ? 0.03 : 0.006, breath = Math.sin(t * 2 * Math.PI * (G.exhausted ? 0.9 : V.hp < 60 ? 0.55 : 0.3)) * breathAmp;
   const sh = G.shake + 0.0015 * prog * (G.state === 'start' ? 0 : 1) + doom * 0.004;
   const [fx, fz] = fwd(); const rxx = -fz, rzz = fx;
@@ -795,24 +795,24 @@ function frame() {
   if (G.state === 'start') { const a = t * 0.05; camera.position.set(Math.sin(a) * 1.5, 2.2, 6 - Math.sin(a * 0.7) * 3); camera.rotation.set(0.08, Math.sin(a) * 0.25, 0, 'YXZ'); }
   // arm + chronometer + carried gear
   const a = G.look; arm.visible = a > 0.01;
-  arm.position.lerpVectors(off, rest, a).add(new THREE.Vector3(bobX * 0.3, bobY * 0.3 + breath * 0.5, 0));
+  arm.position.lerpVectors(off, rest, a); arm.position.x += bobX * 0.3; arm.position.y += bobY * 0.3 + breath * 0.5;
   arm.rotation.set(1.05 - (1 - a) * 0.5 + Math.sin(t * 1.7) * 0.01, 0.55 + (1 - a) * 0.4, 0.42 - (1 - a) * 0.3, 'XYZ');
   stretcherV.visible = !!carried && carryStretcher() && !player.riding; cartV.visible = player.riding === 'cart'; horseV.visible = player.riding === 'horse';
   // world animation
   const cx = camera.position.x, cz = camera.position.z;
-  sun.position.set(cx + 40, 70, cz - 50); sun.target.position.set(cx, 0, cz - 10); sun.intensity = lerp(3.5, 1.8, doom) * (1 + doom * (0.05 * Math.sin(t * 3.1) + 0.04 * Math.sin(t * 7.3)));
+  { const sn = 60 / sun.shadow.mapSize.x * 4, sx = Math.round(cx / sn) * sn, sz = Math.round(cz / sn) * sn; sun.position.set(sx + 40, 70, sz - 50); sun.target.position.set(sx, 0, sz - 10); } sun.intensity = lerp(3.5, 1.8, doom) * (1 + doom * (0.05 * Math.sin(t * 3.1) + 0.04 * Math.sin(t * 7.3)));
   sky.position.copy(camera.position); sky.material.uniforms.uTime.value = t;
   updateSmoke(t, 0.15 + 0.85 * prog * prog, doom); updateFountain(t);
   polishUpdate(dt, t, active, doom, prog);
-  const ashAmt = Math.max(inAsh(player.x, player.z), prog * 0.35, doom); ash.pts.material.opacity = 0.75 * ashAmt; ash.pts.visible = ashAmt > 0.02; embers.pts.visible = doom > 0.15;
+  const ashAmt = Math.max(inAsh(player.x, player.z), doom); ash.pts.material.opacity = 0.45 * ashAmt; ash.pts.visible = ashAmt > 0.02; embers.pts.visible = doom > 0.15;
   updateParticles(ash, t, cx, cz, 0.6, false); updateParticles(embers, t, cx, cz, 0, true);
   craterGlow.material.opacity = lerp(0.25, 0.7, Math.max(doom, prog * 0.4)) + 0.1 * Math.sin(t * 2.3); for (const s of hazes) s.material.rotation = t * 0.02;
   beacon.material.opacity = 0.14 + 0.06 * Math.sin(t * 3); beaconRing.scale.setScalar(1 + 0.06 * Math.sin(t * 3));
-  for (const f of fireObjs) { f.fl.forEach((s, i) => { const k = 0.8 + 0.3 * Math.sin(t * (9 + i * 3) + i); s.scale.set(1.1 * k, 1.6 * k, 1); s.position.set(Math.sin(t * 5 + i) * 0.1, 0.5 + i * 0.25, 0); }); f.L.intensity = 5 + 2 * Math.sin(t * 13 + f.x); }
+  for (const f of fireObjs) { f.fl.forEach((s, i) => { const k = 0.8 + 0.3 * Math.sin(t * (9 + i * 3) + i); s.scale.set(1.1 * k, 1.6 * k, 1); s.position.set(Math.sin(t * 5 + i) * 0.1, 0.5 + i * 0.25, 0); }); f.L.intensity = 5 + 0.8 * Math.sin(t * 4 + f.x) + 0.4 * Math.sin(t * 6.7 + f.x); }
   if (G.state !== 'start') updateHUD(dt, t);
   composer.render();
   fpsAcc += dt; fpsN++; if (fpsAcc > 2) { const fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; window.__fps = fps;
-    if (fps < 48 && pixelRatio > 0.55 && G.state !== 'start') { pixelRatio = Math.max(0.55, pixelRatio - 0.15); resize(); } }
+    if (!TEST && fps < 40 && pixelRatio > 0.9 && G.state !== 'start') { pixelRatio = Math.max(0.9, pixelRatio - 0.1); resize(); } }
 }
 reset(); screen('start'); if (MOBILE) initTouch(); $('screen').dataset.kind = 'start';
 Promise.all(['700 30px Rajdhani', '600 30px Rajdhani', '700 30px "Barlow Condensed"'].map(f => document.fonts.load(f))).finally(() => { drawDial(GAME.duration, 1, 100, 0); window.ready = true; });

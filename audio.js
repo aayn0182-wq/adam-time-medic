@@ -4,24 +4,26 @@ export const Sfx = {
   init() {
     if (this.ctx) { this.ctx.resume(); return; }
     const C = this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    this.out = C.createGain(); this.out.gain.value = 0.9; this.out.connect(C.destination);
+    this.comp = C.createDynamicsCompressor(); Object.assign(this.comp, {}); this.comp.threshold.value = -18; this.comp.knee.value = 12; this.comp.ratio.value = 8; this.comp.attack.value = 0.003; this.comp.release.value = 0.25;
+    this.soft = C.createBiquadFilter(); this.soft.type = 'lowpass'; this.soft.frequency.value = 6000; this.soft.Q.value = 0.5;
+    this.out = C.createGain(); this.out.gain.value = 0.7; this.out.connect(this.soft).connect(this.comp).connect(C.destination);
     this.master = C.createGain(); this.master.gain.value = this.vol.sfx; this.master.connect(this.out);
     this.musicBus = C.createGain(); this.musicBus.gain.value = this.vol.music; this.musicBus.connect(this.out);
     const len = C.sampleRate * 2; this.noise = C.createBuffer(1, len, C.sampleRate); const d = this.noise.getChannelData(0);
     let b = 0; this.brown = C.createBuffer(1, len, C.sampleRate); const bd = this.brown.getChannelData(0);
-    for (let i = 0; i < len; i++) { d[i] = Math.random() * 2 - 1; b = (b + 0.02 * d[i]) / 1.02; bd[i] = b * 3.5; }
+    let p0 = 0, p1 = 0; for (let i = 0; i < len; i++) { const w = Math.random() * 2 - 1; p0 = 0.97 * p0 + 0.03 * w; p1 = 0.6 * p1 + 0.4 * w; d[i] = (p0 * 2.2 + p1 * 0.5); b = (b + 0.02 * w) / 1.02; bd[i] = b * 3.5; }
+    const fadeN = 2048; for (let i = 0; i < fadeN; i++) { const k = i / fadeN; d[i] *= k; d[len - 1 - i] *= k; bd[i] *= k; bd[len - 1 - i] *= k; }
     // continuous volcanic rumble
     const src = C.createBufferSource(); src.buffer = this.brown; src.loop = true;
     const lp = C.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 110;
     this.rumbleGain = C.createGain(); this.rumbleGain.gain.value = 0.0;
     src.connect(lp).connect(this.rumbleGain).connect(this.master); src.start();
     // wind/ash bed
-    const w = C.createBufferSource(); w.buffer = this.noise; w.loop = true; const bp = C.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 600; bp.Q.value = 0.6;
+    const w = C.createBufferSource(); w.buffer = this.noise; w.loop = true; const bp = C.createBiquadFilter(); bp.type = 'lowpass'; bp.frequency.value = 320; bp.Q.value = 0.3;
     this.windGain = C.createGain(); this.windGain.gain.value = 0.0; w.connect(bp).connect(this.windGain).connect(this.master); w.start();
     // crowd murmur: several formant-ish bands of noise with slow random amplitude
     this.crowdGain = C.createGain(); this.crowdGain.gain.value = 0; this.crowdGain.connect(this.master); this.crowdLfos = [];
-    for (const [f, q] of [[320, 3], [540, 4], [820, 5], [1250, 6]]) { const n = C.createBufferSource(); n.buffer = this.noise; n.loop = true; n.playbackRate.value = 0.9 + Math.random() * 0.2;
-      const bp = C.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q; const g = C.createGain(); g.gain.value = 0.12; n.connect(bp).connect(g).connect(this.crowdGain); n.start(); this.crowdLfos.push({ g, bp, f }); }
+    
     this.startMusic();
   },
   vol: (() => { try { return Object.assign({ music: 0.1, sfx: 0.8 }, JSON.parse(localStorage.getItem('adam_audio') || '{}')); } catch (e) { return { music: 0.1, sfx: 0.8 }; } })(),
@@ -40,21 +42,22 @@ export const Sfx = {
       this.musicT = setTimeout(play, 16000); };
     play();
   },
-  setCrowd(level, panic) { if (!this.ctx) return; const t = this.t(); this.crowdGain.gain.setTargetAtTime(level, t, 0.6);
+  setCrowd(level, panic) { return; if (!this.ctx) return; const t = this.t(); this.crowdGain.gain.setTargetAtTime(level, t, 0.6);
     for (const L of this.crowdLfos) { L.g.gain.setTargetAtTime(0.06 + Math.random() * 0.14 * (1 + panic), t, 0.15); L.bp.frequency.setTargetAtTime(L.f * (1 + 0.25 * panic) * (0.9 + Math.random() * 0.2), t, 0.2); } },
   t() { return this.ctx.currentTime; },
-  setAmbience(rumble, wind) { if (!this.ctx) return; this.rumbleGain.gain.setTargetAtTime(rumble, this.t(), 0.3); this.windGain.gain.setTargetAtTime(wind, this.t(), 0.5); },
+  setAmbience(rumble, wind) { if (!this.ctx) return; this.rumbleGain.gain.setTargetAtTime(rumble, this.t(), 0.3); this.windGain.gain.setTargetAtTime(Math.min(wind, 1) * 0.25, this.t(), 0.8); },
   burst({ dur = 0.1, freq = 800, q = 1, type = 'bandpass', gain = 0.3, attack = 0.005, sweep = 0, brown = false }) {
     if (!this.ctx) return; const C = this.ctx, t = this.t();
-    const s = C.createBufferSource(); s.buffer = brown ? this.brown : this.noise; const f = C.createBiquadFilter(); f.type = type; f.frequency.setValueAtTime(freq, t); f.Q.value = q;
+    const s = C.createBufferSource(); s.buffer = brown ? this.brown : this.noise; freq = Math.min(freq, 1400); gain *= 0.6; attack = Math.max(attack, 0.012); const f = C.createBiquadFilter(); f.type = type; f.frequency.setValueAtTime(freq, t); f.Q.value = Math.min(q, 2);
     if (sweep) f.frequency.exponentialRampToValueAtTime(Math.max(20, freq * sweep), t + dur);
     const g = C.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    s.connect(f).connect(g).connect(this.master); s.start(t, Math.random()); s.stop(t + dur + 0.05);
+    const lp2 = C.createBiquadFilter(); lp2.type = 'lowpass'; lp2.frequency.value = 2200; s.connect(f).connect(lp2).connect(g).connect(this.master); s.start(t, Math.random()); s.stop(t + dur + 0.1);
   },
   tone({ freq = 440, dur = 0.2, type = 'sine', gain = 0.2, delay = 0, slide = 0, attack = 0.01, bus = null }) {
     if (!this.ctx) return; const C = this.ctx, t = this.t() + delay;
     const o = C.createOscillator(); o.type = type; o.frequency.setValueAtTime(freq, t); if (slide) o.frequency.exponentialRampToValueAtTime(freq * slide, t + dur);
     const g = C.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    if (type === 'square' || type === 'sawtooth') gain *= 0.5;
     o.connect(g).connect(bus || this.master); o.start(t); o.stop(t + dur + 0.05);
   },
   step(run) { this.burst({ dur: 0.09, freq: run ? 520 : 420, q: 0.8, gain: run ? 0.22 : 0.15 }); this.burst({ dur: 0.06, freq: 140, type: 'lowpass', gain: 0.18 }); },

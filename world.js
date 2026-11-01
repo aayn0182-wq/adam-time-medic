@@ -146,7 +146,7 @@ export function toon(opts, rim = P.lava, rimPow = 3.0, rimK = 0.35) {
 export const hemi = new THREE.HemisphereLight(col('#a8d0ff'), col('#a07050'), 1.25); scene.add(hemi);
 export const amb = new THREE.AmbientLight(col('#fff0dd'), 0.55); scene.add(amb);
 export const sun = new THREE.DirectionalLight(col('#fff1d6'), 3.2);
-sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.radius = 4; sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.03;
+sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.radius = 4; sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.05;
 Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, near: 1, far: 200 });
 scene.add(sun, sun.target);
 const fillCool = new THREE.DirectionalLight(col('#9ab8e0'), 0.5); fillCool.position.set(-20, 15, 30); scene.add(fillCool);
