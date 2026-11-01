@@ -154,7 +154,7 @@ const fillCool = new THREE.DirectionalLight(col('#9ab8e0'), 0.5); fillCool.posit
 // ---------- sky dome ----------
 export const sky = new THREE.Mesh(new THREE.SphereGeometry(2500, 48, 24), new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite: false, fog: false,
-  uniforms: { uTime: { value: 0 }, uDoom: { value: 0 }, top: { value: col('#1e1716') }, ash: { value: col(P.ashSky) }, glow: { value: col(P.lava) }, dTop: { value: col('#2f6fc8') }, dHor: { value: col('#d6ecf8') } },
+  uniforms: { uTime: { value: 0 }, uDoom: { value: 0 }, top: { value: col('#1e1716') }, ash: { value: col(P.ashSky) }, glow: { value: col(P.lava) }, dTop: { value: col('#1767e0') }, dHor: { value: col('#b4ddff') } },
   vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
   fragmentShader: `varying vec3 vP; uniform float uTime, uDoom; uniform vec3 top, ash, glow, dTop, dHor;
   float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);} float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+1.),f.x),f.y);}
@@ -165,8 +165,11 @@ export const sky = new THREE.Mesh(new THREE.SphereGeometry(2500, 48, 24), new TH
     float cl = fbm(vec2(atan(vP.x,vP.z)*3.0 + uTime*0.01, y*6.0));
     c = mix(c, c*0.55 + glow*0.12*toV, smoothstep(0.45,0.8,cl)*smoothstep(-0.05,0.35,y));
     vec3 day = mix(dHor, dTop, smoothstep(-0.02, 0.45, y));
-    float cd = fbm(vec2(atan(vP.x,vP.z)*4.0 + uTime*0.004, y*9.0)); day = mix(day, vec3(1.0,0.98,0.95), smoothstep(0.55,0.8,cd)*smoothstep(0.02,0.3,y)*0.6);
-    day += vec3(1.0,0.6,0.3) * toV * exp(-max(y,0.)*10.0) * 0.25;
+    vec2 cp = vec2(atan(vP.x,vP.z)*5.0 + uTime*0.003, y*14.0); float cd = fbm(cp) * 0.7 + fbm(cp*2.7 + 3.1) * 0.3; float cm = smoothstep(0.52,0.68,cd)*smoothstep(0.03,0.12,y)*(1.0-smoothstep(0.35,0.7,y));
+    float csh = smoothstep(0.5,0.85,fbm(cp + vec2(0.0,-0.25)));
+    vec3 cloudC = mix(vec3(1.0,0.99,0.96), vec3(0.72,0.78,0.9), csh*0.6); day = mix(day, cloudC, cm*0.92);
+    vec3 sd = normalize(vec3(0.45,0.6,-0.55)); float sg = max(dot(vP, sd), 0.0); day += vec3(1.0,0.85,0.55) * (pow(sg, 400.0) * 3.0 + pow(sg, 12.0) * 0.25);
+    day += vec3(1.0,0.75,0.4) * toV * exp(-max(y,0.)*10.0) * 0.15;
     c = mix(day, c, uDoom);
     gl_FragColor = vec4(c,1.0);
     #include <colorspace_fragment>
@@ -396,7 +399,7 @@ for (let i = 0; i < 7; i++) amphora(scene, R(6, 8.4), -44 - i * 2.6, R(0.8, 1.1)
 // scattered rubble
 for (let i = 0; i < 70; i++) { const s = streets[i % 3]; const r = new THREE.Mesh(new THREE.DodecahedronGeometry(R(0.05, 0.18), 0), rnd() < 0.5 ? rubMat : colMat); r.position.set(R(s.x0, s.x1), 0.12, R(s.z0, s.z1)); r.rotation.set(R(0, 3), R(0, 3), 0); scene.add(r); }
 
-export const export_water = {};
+export const export_water = {}; export const boats = [];
 // ---------- harbor ----------
 {
   const plank = canvasTex(256, 256, (g, w, h) => { for (let y = 0; y < h; y += 32) { g.fillStyle = mix('#6a4a2e', '#4a3220', R(0, 1)); g.fillRect(0, y, w, 30); g.fillStyle = '#1a120a'; g.fillRect(0, y + 30, w, 2); } strokes(g, w, h, ['#2a1a10', '#8a6a4a'], 300, 1, 3, 0.15, 0.3, 14); }, [6, 8]);
@@ -410,7 +413,13 @@ export const export_water = {};
   hull.position.set(boat.x + 0.5, 0.1, boat.z); hull.rotation.set(-Math.PI / 2, 0, 0); hull.rotation.order = 'YXZ'; scene.add(hull);
   const hg = new THREE.Group(); hg.position.set(75, 0, -30); scene.add(hg);
   const h2 = B(hg, woodMat, 3.2, 1.0, 10, 0, 0.0, 0); const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 9, 8), woodMat); mast.position.set(0, 4.5, 0); hg.add(mast);
-  const sail = new THREE.Mesh(new THREE.PlaneGeometry(5, 4.5, 6, 6), clothMats[0]); sail.position.set(0.1, 5.5, 0); sail.rotation.y = Math.PI / 2; hg.add(sail);
+  const sailTex = canvasTex(256, 256, (g, w, h) => { for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? '#fff6e6' : '#e8402a'; g.fillRect(i * w / 8, 0, w / 8, h); } g.fillStyle = 'rgba(255,200,60,.9)'; g.beginPath(); g.arc(w / 2, h / 2, 40, 0, 7); g.fill(); });
+  const sailMat = new THREE.MeshStandardMaterial({ map: sailTex, side: THREE.DoubleSide, roughness: 0.8, emissive: col('#ffffff'), emissiveMap: sailTex, emissiveIntensity: 0.18 });
+  const sp = new THREE.PlaneGeometry(5, 4.5, 8, 8); { const a = sp.attributes.position; for (let i = 0; i < a.count; i++) a.setZ(i, Math.sin((a.getX(i) / 5 + 0.5) * Math.PI) * 0.6); sp.computeVertexNormals(); }
+  const sail = new THREE.Mesh(sp, sailMat);
+  [['#2f7fd0', 86, -20, 0.3], ['#f2c14e', 90, -40, -0.4], ['#3ab07a', 98, -28, 1.2], ['#e85a4f', 84, -48, 0.8]].forEach(([c, x, z, r]) => { const g = new THREE.Group(); g.position.set(x, -0.35, z); g.rotation.y = r; scene.add(g);
+    const hm = new THREE.MeshStandardMaterial({ color: col(c), roughness: 0.6 }); const h = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.5, 5, 10, 1, false, 0, Math.PI), hm); h.rotation.set(Math.PI / 2, 0, Math.PI); h.scale.set(1, 1, 0.7); g.add(h);
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 4, 6), woodMat); m.position.y = 2; g.add(m); const sl = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 2.6, 1, 1), sailMat); sl.scale.x = 18; sl.position.set(0, 2.4, 0); sl.rotation.y = Math.PI / 2; g.add(sl); boats.push(g); }); sail.position.set(0.1, 5.5, 0); sail.rotation.y = Math.PI / 2; hg.add(sail);
   scene.remove(hull);
   // crates & amphorae
   for (let i = 0; i < 6; i++) { const x = R(54, 64), z = rnd() < 0.5 ? R(-43, -40) : R(-20, -17); const cr = new THREE.Mesh(new RoundedBoxGeometry(1, 0.9, 1, 2, 0.05), woodMat); cr.position.set(x, 0.5, z); cr.rotation.y = R(0, 1); cr.castShadow = true; scene.add(cr); colliders.push({ x, z, r: 0.7 }); }
