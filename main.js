@@ -1033,10 +1033,14 @@ function buildPerson(d) {
   const skinTint = col(SKIN_HEX[(d.skin || 0) % 4]).multiply(new THREE.Color(1 / SKIN_REF.r, 1 / SKIN_REF.g, 1 / SKIN_REF.b));
   const hairC = col(HAIR_HEX[(d.hair || 0) % 5]), tunicC = col(TUNIC_HEX[(d.tunic || 0) % 10]).lerp(col('#ffffff'), 0.25);
   const meshes = [];
-  rig.traverse(o => { if (o.isSkinnedMesh) { meshes.push(o); const body = /Body|Legs/i.test(o.name); o.material = toon({ map: body ? null : o.material.map, color: body ? col(TUNIC_HEX[(d.tunic || 0) % 10]).lerp(col('#cdbb98'), 0.35).multiplyScalar(0.92) : /Feet/i.test(o.name) ? col('#9a6a40') : skinTint }, '#fff0d0', 2.5, 0.2); } });
+  rig.traverse(o => { if (o.isSkinnedMesh) { meshes.push(o); const body = /Body|Legs/i.test(o.name); o.material = toon({ map: body ? null : o.material.map, color: body ? col(TUNIC_HEX[(d.tunic || 0) % 10]).lerp(col('#cdbb98'), 0.35) : /Feet/i.test(o.name) ? col('#9a6a40') : skinTint }, '#fff0d0', 2.5, 0.2); } });
   const base = SkeletonUtils.clone(S.base.scene); const grafts = []; base.traverse(o => { if (o.isSkinnedMesh) grafts.push(o); });
   for (const g of grafts) { const mapped = g.skeleton.bones.map(bn => bones[bn.name]); if (mapped.some(x => !x)) continue;
     const nm = g.name.toLowerCase(); if (/body|leg|arm|feet|foot|torso|hand/.test(nm) && !/head/.test(nm)) continue; // outfit already covers the body
+    if (/superhero/.test(nm) && g.geometry.index) { // full superhero body: keep only head/neck triangles (the rest was poking through clothes and made builds look heroic)
+      const geo = g.geometry.clone(), sI = geo.attributes.skinIndex, sW = geo.attributes.skinWeight, ix = geo.index.array, keepV = new Uint8Array(sI.count), hb = new Set(g.skeleton.bones.map((bn, i) => /head|neck/i.test(bn.name) ? i : -1));
+      for (let i = 0; i < sI.count; i++) { let w = 0; for (let q = 0; q < 4; q++) if (hb.has(sI.getComponent(i, q))) w += sW.getComponent(i, q); keepV[i] = w > 0.5 ? 1 : 0; }
+      const out = []; for (let t = 0; t < ix.length; t += 3) if (keepV[ix[t]] && keepV[ix[t + 1]] && keepV[ix[t + 2]]) out.push(ix[t], ix[t + 1], ix[t + 2]); geo.setIndex(out); g.geometry = geo; }
     g.skeleton = new THREE.Skeleton(mapped, g.skeleton.boneInverses); g.position.set(0, 0, 0); g.rotation.set(0, 0, 0); g.scale.set(1, 1, 1);
     const eye = /eye(?!brow)/.test(nm); g.material = eye ? g.material : toon({ map: g.material.map, color: /brow/.test(nm) ? hairC.clone().multiplyScalar(1.3) : skinTint }, '#fff0d0', 2.5, 0.2);
     rig.add(g); if (!eye) meshes.push(g); }
@@ -1051,11 +1055,11 @@ function buildPerson(d) {
     const sk = meshes[0] && meshes[0].skeleton;
     if (pel && neck && calf && foot && s3 && s2 && s1 && sk) {
       const bbx = new THREE.Box3(); for (const o of meshes) if (/Body/i.test(o.name)) bbx.expandByObject(o, true);
-      const cx = bbx.isEmpty() ? pel.x : bbx.getCenter(new THREE.Vector3()).x, cz = (bbx.isEmpty() ? pel.z : bbx.getCenter(new THREE.Vector3()).z) + 0.065 * u;
+      const cx = bbx.isEmpty() ? pel.x : bbx.getCenter(new THREE.Vector3()).x, cz = (bbx.isEmpty() ? pel.z : bbx.getCenter(new THREE.Vector3()).z) + 0.03 * u;
       const bi = n => Math.max(0, sk.bones.indexOf(bones[n]));
       const hemY = female ? foot.y + 0.07 * u : calf.y + 0.02 * u, fl = female ? 0.3 : 0.27;
       // profile keys: [y, rx, rz] in metres (scaled by u); slim at the arms so poses don't clip
-      const K = [[neck.y - 0.01 * u, 0.075, 0.07], [neck.y - 0.06 * u, 0.165, 0.12], [s3.y, 0.17, 0.15], [s2.y, 0.165, 0.145], [pel.y + 0.11 * u, 0.165, 0.13], [pel.y - 0.03 * u, 0.205, 0.155], [(pel.y + hemY) / 2, fl * 0.9, fl * 0.72], [hemY, fl, fl * 0.8]];
+      const K = [[neck.y + 0.005 * u, 0.085, 0.08], [neck.y - 0.045 * u, 0.18, 0.13], [s3.y, 0.175, 0.15], [s2.y, 0.165, 0.14], [pel.y + 0.11 * u, 0.165, 0.13], [pel.y - 0.03 * u, 0.205, 0.155], [(pel.y + hemY) / 2, fl * 0.9, fl * 0.72], [hemY, fl, fl * 0.8]];
       const R = 30, N = 34, pos = [], idx = [], si = [], sw = [], si2 = [], sw2 = [], sway = [], colr = [];
       const pc = col(TUNIC_HEX[((d.tunic || 0) + 3) % 10]).lerp(col('#cdbb98'), 0.3), bc = col(female ? '#c8a050' : '#5a3a20'), wc = new THREE.Color(1, 1, 1);
       const yTop = K[0][0], yBot = hemY, pr = (d.tunic || 0) * 1.7;
@@ -1084,6 +1088,19 @@ function buildPerson(d) {
       const ph = Math.random() * 6.28, amp = 0.025 * u;
       const prev = tm.onBeforeCompile; tm.onBeforeCompile = (sh, r) => { prev && prev.call(tm, sh, r); sh.uniforms.uClothT = CLOTH_T; sh.vertexShader = 'attribute float sway; uniform float uClothT;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>\n transformed.x += sway * ${amp.toFixed(4)} * sin(uClothT * 2.3 + ${ph.toFixed(2)} + position.z * 9.0);\n transformed.z += sway * ${(amp * 0.7).toFixed(4)} * sin(uClothT * 1.7 + ${ph.toFixed(2)} + position.x * 11.0);`); };
       tm.customProgramCacheKey = () => 'cloth' + amp.toFixed(4) + ph.toFixed(2);
+      // hide the old outfit under the cloth: pull covered body verts (bind pose) inward so nothing pokes through as "holes"
+      const rAt = y => { let k = 0; while (k < K.length - 2 && K[k + 1][0] > y) k++; const a = K[k], b = K[k + 1], f = clamp((a[0] - y) / ((a[0] - b[0]) || 1), 0, 1), fs = f * f * (3 - 2 * f); return [(a[1] + (b[1] - a[1]) * fs) * u, (a[2] + (b[2] - a[2]) * fs) * u]; };
+      const v = new THREE.Vector3(), inv = new THREE.Matrix4();
+      for (const o of meshes) { if (/Head|Eye|Brow|Hair|Feet/i.test(o.name)) continue; o.geometry = o.geometry.clone(); const pa = o.geometry.attributes.position; o.updateMatrixWorld(true); inv.copy(o.matrixWorld).invert();
+        const sI = o.geometry.attributes.skinIndex, sW = o.geometry.attributes.skinWeight, armRe = /arm|hand|thumb|index|middle|ring|pinky|finger/i;
+        for (let i = 0; i < pa.count; i++) { v.fromBufferAttribute(pa, i).applyMatrix4(o.matrixWorld); if (v.y > yTop || v.y < hemY + 0.06 * u) continue; const [rx, rz] = rAt(v.y), ex = (v.x - cx) / rx, ez = (v.z - cz) / rz, e = Math.hypot(ex, ez);
+          if (sI) { let bw = 0, bn = ''; for (let q = 0; q < 4; q++) { const w = sW.getComponent(i, q); if (w > bw) { bw = w; bn = (o.skeleton.bones[sI.getComponent(i, q)] || {}).name || ''; } } if (armRe.test(bn) && (Math.abs(ex) > 0.8 || v.y < s3.y)) continue; } // arms stay
+          const fade = clamp((v.y - hemY - 0.06 * u) / (0.1 * u), 0, 1), k = 1 - fade * (e > 0.5 ? 1 - 0.5 / e : 0); v.x = cx + (v.x - cx) * k; v.z = cz + (v.z - cz) * k; v.applyMatrix4(inv); pa.setXYZ(i, v.x, v.y, v.z); }
+        if (/Arms/i.test(o.name)) { // short sleeves: upper-arm verts near the shoulder take the tunic colour
+          const sc = col(SKIN_HEX[(d.skin || 0) % 4]).multiplyScalar(0.9), tc = col(TUNIC_HEX[(d.tunic || 0) % 10]).lerp(col('#cdbb98'), 0.35), cl = [], sleeveY = s3.y - (female ? 0.06 : 0.1) * u;
+          for (let i = 0; i < pa.count; i++) { let bw = 0, bn = ''; if (sI) for (let q = 0; q < 4; q++) { const w = sW.getComponent(i, q); if (w > bw) { bw = w; bn = (o.skeleton.bones[sI.getComponent(i, q)] || {}).name || ''; } } const c = /clavicle|upperarm|spine/i.test(bn) && !(female && /upperarm/i.test(bn) && bw < 0.7) ? tc : sc; cl.push(c.r, c.g, c.b); }
+          o.geometry.setAttribute('color', new THREE.Float32BufferAttribute(cl, 3)); o.material = toon({ color: col('#ffffff'), vertexColors: true }, '#fff0d0', 2.5, 0.2); }
+        pa.needsUpdate = true; o.geometry.computeVertexNormals(); }
       const cm = new THREE.SkinnedMesh(geo, tm); cm.name = 'Cloth'; rig.add(cm); rig.updateMatrixWorld(true); cm.bind(sk, new THREE.Matrix4()); meshes.push(cm); rig.userData.cloth = { geo, walk: [geo.attributes.skinIndex, geo.attributes.skinWeight], sit: [new THREE.Uint16BufferAttribute(si2, 4), new THREE.Float32BufferAttribute(sw2, 4)], mode: 'walk' }; } }
   // everyday (non-heroic) builds: narrower chest/shoulders, thinner arms, per-person weight
   { const wgt = d.weight != null ? d.weight : ((d.tunic || 0) * 37 % 10) / 10, sc = (n, x, z) => { if (bones[n]) bones[n].scale.set(x, 1, z); };
@@ -1095,7 +1112,10 @@ function buildPerson(d) {
     const ol = new THREE.SkinnedMesh(o.geometry, OUTLINE_MAT(S.upm * 0.006)); ol.bind(o.skeleton, o.bindMatrix); ol.frustumCulled = false; o.parent.add(ol); ol.position.copy(o.position); ol.quaternion.copy(o.quaternion); ol.scale.copy(o.scale); }
   return { rig, bones };
 }
+function clearAround(c) { // shop-front crates (random in world.js) can spawn on top of a patient's spot — hide them
+  if (!c.injury) return; const p = new THREE.Vector3(); scene.traverse(o => { if (o.isMesh && o.geometry.type === 'RoundedBoxGeometry' && o.geometry.parameters.width === 0.6 && o.geometry.parameters.height === 0.5) { o.getWorldPosition(p); if (Math.hypot(p.x - c.pos.x, p.z - c.pos.y) < 1.6) o.visible = false; } }); }
 function attachModel(c) {
+  clearAround(c);
   const d = c.def || c, { rig, bones } = buildPerson(d), S = d.female ? CH.female : CH.male;
   const s = (d.female ? 1.66 : 1.76) / S.h; const wrap = new THREE.Group(); wrap.add(rig); rig.scale.multiplyScalar(s); rig.position.y = -S.minY * s;
   if (bones.lowerarm_l && c.band) { const bm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.09, 10), c.band.material); bm.visible = false; const k = new THREE.Vector3(); bones.lowerarm_l.getWorldScale(k); bm.scale.divideScalar(k.x * s || 1); bones.lowerarm_l.add(bm); c.band.visible = false; c.band = bm; }
