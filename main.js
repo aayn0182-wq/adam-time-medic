@@ -1019,7 +1019,8 @@ const TUNIC_HEX = ['#e8553f', '#4f8fd8', '#e8c050', '#5ab070', '#a070d0', '#e88a
 const SKIN_HEX = ['#e8b48c', '#c08660', '#f2c8a0', '#8e5e40'], HAIR_HEX = ['#3a2214', '#6a3a1a', '#c89040', '#9a948e', '#1e1410'];
 const SKIN_REF = new THREE.Color(0xd8a87c);
 const CHARS_ON = GFX !== 'low' && !/[?&]chars=0/.test(location.search);
-const CLIP = { Idle: 'Idle_Loop', Talk: 'Idle_Talking_Loop', Walking_A: 'Walk_Loop', Running_A: 'Jog_Fwd_Loop', Sprint: 'Sprint_Loop', Cheer: 'Dance_Loop', Lie_Idle: 'Death01', Sit_Floor_Idle: 'Sitting_Idle_Loop' };
+const CLOTH_T = { value: 0 };
+const CLIP = { Idle: 'Idle_Loop', Talk: 'Idle_Loop', Walking_A: 'Walk_Loop', Running_A: 'Jog_Fwd_Loop', Sprint: 'Sprint_Loop', Cheer: 'Dance_Loop', Lie_Idle: 'Death01', Sit_Floor_Idle: 'Sitting_Idle_Loop' };
 const _olMats = {}; function OUTLINE_MAT(w) { const k = w.toFixed(5); if (_olMats[k]) return _olMats[k];
   const mt = new THREE.MeshBasicMaterial({ color: col('#2a1a12'), side: THREE.BackSide });
   mt.onBeforeCompile = sh => { sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n transformed += normalize(objectNormal) * ' + k + ';'); };
@@ -1032,7 +1033,7 @@ function buildPerson(d) {
   const skinTint = col(SKIN_HEX[(d.skin || 0) % 4]).multiply(new THREE.Color(1 / SKIN_REF.r, 1 / SKIN_REF.g, 1 / SKIN_REF.b));
   const hairC = col(HAIR_HEX[(d.hair || 0) % 5]), tunicC = col(TUNIC_HEX[(d.tunic || 0) % 10]).lerp(col('#ffffff'), 0.25);
   const meshes = [];
-  rig.traverse(o => { if (o.isSkinnedMesh) { meshes.push(o); const body = /Body|Legs/i.test(o.name); o.material = toon({ map: o.material.map, color: body ? tunicC : /Feet/i.test(o.name) ? col('#9a6a40') : skinTint }, '#fff0d0', 2.5, 0.2); } });
+  rig.traverse(o => { if (o.isSkinnedMesh) { meshes.push(o); const body = /Body|Legs/i.test(o.name); o.material = toon({ map: body ? null : o.material.map, color: body ? col(TUNIC_HEX[(d.tunic || 0) % 10]).lerp(col('#cdbb98'), 0.35).multiplyScalar(0.92) : /Feet/i.test(o.name) ? col('#9a6a40') : skinTint }, '#fff0d0', 2.5, 0.2); } });
   const base = SkeletonUtils.clone(S.base.scene); const grafts = []; base.traverse(o => { if (o.isSkinnedMesh) grafts.push(o); });
   for (const g of grafts) { const mapped = g.skeleton.bones.map(bn => bones[bn.name]); if (mapped.some(x => !x)) continue;
     const nm = g.name.toLowerCase(); if (/body|leg|arm|feet|foot|torso|hand/.test(nm) && !/head/.test(nm)) continue; // outfit already covers the body
@@ -1044,18 +1045,52 @@ function buildPerson(d) {
   const hs = d.style === 'bald' ? null : d.style === 'bun' ? 'Hair_Buns' : d.style === 'long' ? 'Hair_Long' : styles[(d.hair || 0) % styles.length];
   rig.updateMatrixWorld(true);
   for (const hn of [hs, d.beard ? 'Hair_Beard' : null]) if (hn && CH.hair[hn] && head) { const h = CH.hair[hn].scene.clone(true); h.traverse(o => { if (o.isMesh) { o.material = hm; o.castShadow = true; } }); rig.add(h); rig.updateMatrixWorld(true); head.attach(h); }
-  // Roman clothing: tunic (men, knee length) / stola (women, ankle length) + belt, as rigid pieces following spine & pelvis
+  // Roman clothing: one skinned cloth mesh (tunic to the knee / stola to the ankle) weighted to spine, pelvis & thighs; folds + hem sway
   { const u = S.h / 1.76, wp = n => bones[n] ? bones[n].getWorldPosition(new THREE.Vector3()) : null;
-    const pel = wp('pelvis'), neck = wp('neck_01'), calf = wp('calf_l'), foot = wp('foot_l'), sp2 = wp('spine_02');
-    const bbx = new THREE.Box3(); for (const o of meshes) if (/Body/i.test(o.name)) bbx.expandByObject(o, true); if (!bbx.isEmpty() && pel) { const cc = bbx.getCenter(new THREE.Vector3()); pel.x = cc.x; pel.z = cc.z; } if (pel) pel.z += 0.055 * u;
-    if (pel && neck && calf && foot) { const tm = toon({ color: col(TUNIC_HEX[(d.tunic || 0) % 10]).lerp(col('#cdbb98'), 0.35) }, '#fff0d0', 2.5, 0.2); tm.side = THREE.DoubleSide; const _q = 0, om = new THREE.MeshBasicMaterial({ color: col('#2a1a12'), side: THREE.BackSide });
-      const add = (geo, bone, pos, sz) => { const g = new THREE.Group(); const me = new THREE.Mesh(geo, tm); me.castShadow = true; const ol = new THREE.Mesh(geo, om); ol.scale.setScalar(1.045); g.add(me, ol); g.scale.set(1, 1, sz); g.position.copy(pos); rig.add(g); rig.updateMatrixWorld(true); bones[bone].attach(g); return g; };
-      const topY = neck.y - 0.05 * u, waistY = pel.y + 0.1 * u, hemY = female ? foot.y + 0.1 * u : calf.y + 0.08 * u;
-      add(new THREE.CylinderGeometry(0.19 * u, 0.195 * u, topY - waistY, 16), sp2 ? 'spine_02' : 'pelvis', new THREE.Vector3(pel.x, (topY + waistY) / 2, pel.z), 0.9);
-      add(new THREE.CylinderGeometry(0.215 * u, (female ? 0.34 : 0.3) * u, waistY - hemY + 0.04 * u, 18, 1, true), 'pelvis', new THREE.Vector3(pel.x, (waistY + hemY) / 2, pel.z), 0.92);
-      const sh = add(new THREE.SphereGeometry(0.235 * u, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), sp2 ? 'spine_02' : 'pelvis', new THREE.Vector3(pel.x, topY - 0.06 * u, pel.z), 0.7); sh.scale.y = 0.45;
-      const belt = new THREE.Mesh(new THREE.TorusGeometry(0.212 * u, 0.022 * u, 6, 20), toon({ color: col(female ? '#d8b060' : '#6a4424') }, '#fff0d0', 3, 0.2)); belt.rotation.x = Math.PI / 2; belt.scale.y = 0.75; belt.position.set(pel.x, waistY + 0.02 * u, pel.z); rig.add(belt); rig.updateMatrixWorld(true); bones.pelvis.attach(belt);
-      if (female) { const pa = new THREE.Mesh(new THREE.TorusGeometry(0.215 * u, 0.05 * u, 8, 20, Math.PI * 1.3), toon({ color: col(TUNIC_HEX[((d.tunic || 0) + 3) % 10]) }, '#fff0d0', 2.5, 0.2)); pa.position.set(pel.x, topY - 0.12 * u, pel.z); pa.rotation.set(0.6, 0, 0.7); rig.add(pa); rig.updateMatrixWorld(true); bones[sp2 ? 'spine_02' : 'pelvis'].attach(pa); } } }
+    const pel = wp('pelvis'), neck = wp('neck_01'), calf = wp('calf_l'), foot = wp('foot_l'), s3 = wp('spine_03'), s2 = wp('spine_02'), s1 = wp('spine_01');
+    const sk = meshes[0] && meshes[0].skeleton;
+    if (pel && neck && calf && foot && s3 && s2 && s1 && sk) {
+      const bbx = new THREE.Box3(); for (const o of meshes) if (/Body/i.test(o.name)) bbx.expandByObject(o, true);
+      const cx = bbx.isEmpty() ? pel.x : bbx.getCenter(new THREE.Vector3()).x, cz = (bbx.isEmpty() ? pel.z : bbx.getCenter(new THREE.Vector3()).z) + 0.065 * u;
+      const bi = n => Math.max(0, sk.bones.indexOf(bones[n]));
+      const hemY = female ? foot.y + 0.07 * u : calf.y + 0.02 * u, fl = female ? 0.3 : 0.27;
+      // profile keys: [y, rx, rz] in metres (scaled by u); slim at the arms so poses don't clip
+      const K = [[neck.y - 0.01 * u, 0.075, 0.07], [neck.y - 0.06 * u, 0.165, 0.12], [s3.y, 0.17, 0.15], [s2.y, 0.165, 0.145], [pel.y + 0.11 * u, 0.165, 0.13], [pel.y - 0.03 * u, 0.205, 0.155], [(pel.y + hemY) / 2, fl * 0.9, fl * 0.72], [hemY, fl, fl * 0.8]];
+      const R = 30, N = 34, pos = [], idx = [], si = [], sw = [], si2 = [], sw2 = [], sway = [], colr = [];
+      const pc = col(TUNIC_HEX[((d.tunic || 0) + 3) % 10]).lerp(col('#cdbb98'), 0.3), bc = col(female ? '#c8a050' : '#5a3a20'), wc = new THREE.Color(1, 1, 1);
+      const yTop = K[0][0], yBot = hemY, pr = (d.tunic || 0) * 1.7;
+      for (let j = 0; j <= R; j++) { const t = j / R, y = yTop + (yBot - yTop) * (t < 0.08 ? t * 1.6 : 0.128 + (t - 0.08) * 0.948);
+        let k = 0; while (k < K.length - 2 && K[k + 1][0] > y) k++; const a = K[k], b = K[k + 1], f = clamp((a[0] - y) / ((a[0] - b[0]) || 1), 0, 1), fs = f * f * (3 - 2 * f);
+        const rx = (a[1] + (b[1] - a[1]) * fs) * u, rz = (a[2] + (b[2] - a[2]) * fs) * u, below = clamp((pel.y - y) / (pel.y - yBot), 0, 1);
+        for (let i = 0; i < N; i++) { const th = i / N * Math.PI * 2, fold = 1 + below * (0.07 * Math.sin(th * 9 + pr) + 0.035 * Math.sin(th * 17 + pr * 2)) + (y > pel.y ? 0.012 * Math.sin(th * 6) : 0);
+          const x = cx + Math.sin(th) * rx * fold, z = cz + Math.cos(th) * rz * fold; pos.push(x, y, z);
+          // weights
+          let w = {}; const add = (n, v) => { if (v > 0) w[n] = (w[n] || 0) + v; };
+          if (y >= s3.y) add('spine_03', 1); else if (y >= s2.y) { const q = (y - s2.y) / (s3.y - s2.y); add('spine_03', q); add('spine_02', 1 - q); }
+          else if (y >= s1.y) { const q = (y - s1.y) / (s2.y - s1.y); add('spine_02', q); add('spine_01', 1 - q); }
+          else if (y >= pel.y) { const q = (y - pel.y) / (s1.y - pel.y); add('spine_01', q); add('pelvis', 1 - q); }
+          else { const lw = Math.pow(below, 0.7) * 0.9, side = clamp(0.5 + 0.5 * Math.sin(th) * 1.6, 0, 1); add('pelvis', 1 - lw); add('thigh_l', lw * side); add('thigh_r', lw * (1 - side)); }
+          const pushW = (w, si, sw) => { const ks = Object.keys(w).sort((p, q) => w[q] - w[p]).slice(0, 4), tot = ks.reduce((s, n) => s + w[n], 0); for (let m = 0; m < 4; m++) { si.push(ks[m] ? bi(ks[m]) : 0); sw.push(ks[m] ? w[ks[m]] / tot : 0); } };
+          pushW(w, si, sw); const w2 = {}; for (const n in w) { const isLeg = n.startsWith('thigh'); w2[isLeg ? n : n] = w[n] * (isLeg ? 0.4 : 1); } if (y < pel.y) w2.pelvis = (w2.pelvis || 0) + (w.thigh_l || 0) * 0.6 + (w.thigh_r || 0) * 0.6; pushW(w2, si2, sw2);
+          sway.push(below * below);
+          // colours: belt band, women's palla sash over the left shoulder, darker hem trim
+          let c = wc; if (Math.abs(y - (pel.y + 0.1 * u)) < 0.022 * u) c = bc; else if (female && y > pel.y + 0.05 * u && Math.abs((y - pel.y) / u - 0.32 - 0.45 * Math.sin(th) * 0.5) < 0.07) c = pc; else if (j >= R - 1) c = col('#b8a888');
+          colr.push(c.r, c.g, c.b); } }
+      for (let j = 0; j < R; j++) for (let i = 0; i < N; i++) { const a = j * N + i, b = j * N + (i + 1) % N, c2 = a + N, d2 = b + N; idx.push(a, c2, b, b, c2, d2); }
+      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx);
+      geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4)); geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
+      geo.setAttribute('sway', new THREE.Float32BufferAttribute(sway, 1)); geo.setAttribute('color', new THREE.Float32BufferAttribute(colr, 3)); geo.computeVertexNormals();
+      const tm = toon({ color: col(TUNIC_HEX[(d.tunic || 0) % 10]).lerp(col('#cdbb98'), 0.35), vertexColors: true }, '#fff0d0', 2.5, 0.2); tm.side = THREE.DoubleSide;
+      const ph = Math.random() * 6.28, amp = 0.025 * u;
+      const prev = tm.onBeforeCompile; tm.onBeforeCompile = (sh, r) => { prev && prev.call(tm, sh, r); sh.uniforms.uClothT = CLOTH_T; sh.vertexShader = 'attribute float sway; uniform float uClothT;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>\n transformed.x += sway * ${amp.toFixed(4)} * sin(uClothT * 2.3 + ${ph.toFixed(2)} + position.z * 9.0);\n transformed.z += sway * ${(amp * 0.7).toFixed(4)} * sin(uClothT * 1.7 + ${ph.toFixed(2)} + position.x * 11.0);`); };
+      tm.customProgramCacheKey = () => 'cloth' + amp.toFixed(4) + ph.toFixed(2);
+      const cm = new THREE.SkinnedMesh(geo, tm); cm.name = 'Cloth'; rig.add(cm); rig.updateMatrixWorld(true); cm.bind(sk, new THREE.Matrix4()); meshes.push(cm); rig.userData.cloth = { geo, walk: [geo.attributes.skinIndex, geo.attributes.skinWeight], sit: [new THREE.Uint16BufferAttribute(si2, 4), new THREE.Float32BufferAttribute(sw2, 4)], mode: 'walk' }; } }
+  // everyday (non-heroic) builds: narrower chest/shoulders, thinner arms, per-person weight
+  { const wgt = d.weight != null ? d.weight : ((d.tunic || 0) * 37 % 10) / 10, sc = (n, x, z) => { if (bones[n]) bones[n].scale.set(x, 1, z); };
+    const ch = female ? 0.93 : 0.86, belly = 0.95 + wgt * 0.17;
+    sc('spine_01', belly, belly); sc('spine_02', 1 / belly * (0.98 + wgt * 0.06), 1 / belly * (1 + wgt * 0.08));
+    sc('spine_03', ch / (0.98 + wgt * 0.06), ch / (1 + wgt * 0.08)); sc('neck_01', 1 / ch, 1 / ch);
+    for (const sd of ['l', 'r']) { sc('upperarm_' + sd, 0.88 + wgt * 0.08, 0.88 + wgt * 0.08); sc('hand_' + sd, 1 / ((0.88 + wgt * 0.08) * ch), 1 / ((0.88 + wgt * 0.08) * ch)); sc('clavicle_' + sd, 1 / ch, 1 / ch); } }
   for (const o of meshes) { o.castShadow = true; o.frustumCulled = false;
     const ol = new THREE.SkinnedMesh(o.geometry, OUTLINE_MAT(S.upm * 0.006)); ol.bind(o.skeleton, o.bindMatrix); ol.frustumCulled = false; o.parent.add(ol); ol.position.copy(o.position); ol.quaternion.copy(o.quaternion); ol.scale.copy(o.scale); }
   return { rig, bones };
@@ -1068,12 +1103,14 @@ function attachModel(c) {
   let seat = null; if (c.injury && INJURIES[c.injury].pose !== 'lie') { seat = new THREE.Mesh(new RoundedBoxGeometry(0.55, 0.42, 0.5, 2, 0.04), seatMat); seat.position.set(0, 0.21, -0.12); seat.castShadow = seat.receiveShadow = true; c.root.add(seat); }
   const mixer = new THREE.AnimationMixer(rig), act = {}; for (const [k, n] of Object.entries(CLIP)) if (CH.clips[n]) { act[k] = mixer.clipAction(CH.clips[n]); }
   if (act.Lie_Idle) { act.Lie_Idle.setLoop(THREE.LoopOnce, 1); act.Lie_Idle.clampWhenFinished = true; }
-  c.md = { wrap, mixer, act, cur: null, acc: 0, seat }; mixer.timeScale = R(0.92, 1.08);
+  c.md = { wrap, rig, mixer, act, cur: null, acc: 0, seat }; mixer.timeScale = R(0.92, 1.08);
 }
 function animModel(c, dt, panic) {
+  CLOTH_T.value = performance.now() / 1000;
   const md = c.md; if (!md) return; let clip, ts = 1; md.wrap.position.set(0, 0, 0); md.wrap.rotation.set(0, 0, 0);
-  const down = c.state === 'injured' || c.state === 'down'; if (md.seat) md.seat.visible = down;
-  if (down) { const pz = INJURIES[c.injury].pose; clip = pz === 'lie' && c.state === 'injured' ? 'Lie_Idle' : 'Sit_Floor_Idle'; if (clip === 'Sit_Floor_Idle') md.wrap.position.z = -0.12; }
+  const down = c.state === 'injured' || c.state === 'down'; if (md.seat) md.seat.visible = false;
+  if (down) { const pz = INJURIES[c.injury].pose; clip = pz === 'lie' && c.state === 'injured' ? 'Lie_Idle' : 'Sit_Floor_Idle'; if (clip === 'Sit_Floor_Idle') { md.wrap.position.z = -0.12; if (md.seat) md.seat.visible = true; }
+    const cl = md.rig && md.rig.userData.cloth, want = clip === 'Sit_Floor_Idle' ? 'sit' : 'walk'; if (cl && cl.mode !== want) { cl.mode = want; cl.geo.setAttribute('skinIndex', cl[want][0]); cl.geo.setAttribute('skinWeight', cl[want][1]); } }
   else if (c.state === 'carried') { clip = 'Lie_Idle'; md.wrap.position.y = c.body.position.y - 0.1; }
   else { const sp = c.speed || 0; if (panic > 0.5 && sp > 0.3) { clip = sp > 4 ? 'Sprint' : 'Running_A'; ts = clamp(sp / 4, 0.8, 1.4); } else if (sp > 3.2) { clip = 'Running_A'; ts = clamp(sp / 4.2, 0.7, 1.5); } else if (sp > 0.25) { clip = 'Walking_A'; ts = clamp(sp / 1.4, 0.6, 1.6); }
     else clip = c.state === 'saved' ? (c.cheerT > 0 ? 'Cheer' : 'Idle') : c.injury ? 'Idle' : 'Talk'; if (c.cheerT > 0) c.cheerT -= dt; }
@@ -1087,7 +1124,7 @@ if (CHARS_ON) {
   const names = ['Male_Peasant', 'Female_Peasant', 'Superhero_Male_FullBody', 'Superhero_Female_FullBody', 'Hair_Long', 'Hair_Buns', 'Hair_Buzzed', 'Hair_SimpleParted', 'Hair_Beard', 'UAL_anims'];
   Promise.all(names.map(load)).then(gs => { const G2 = Object.fromEntries(names.map((n, i) => [n, gs[i]]));
     const info = o => { o.scene.updateMatrixWorld(true); const box = new THREE.Box3().setFromObject(o.scene); let gh = 1; o.scene.traverse(q => { if (q.isSkinnedMesh && /Body/.test(q.name)) { q.geometry.computeBoundingBox(); const bb = q.geometry.boundingBox; gh = Math.max(bb.max.y - bb.min.y, bb.max.z - bb.min.z); } }); return { h: box.max.y - box.min.y, minY: box.min.y, upm: gh / 1.76 }; };
-    const clips = {}; G2.UAL_anims.animations.forEach(k => clips[k.name] = k);
+    const clips = {}; G2.UAL_anims.animations.forEach(k => { k.tracks = k.tracks.filter(t => !t.name.endsWith(".scale")); clips[k.name] = k; });
     CH = { male: { outfit: G2.Male_Peasant, base: G2.Superhero_Male_FullBody, ...info(G2.Male_Peasant) }, female: { outfit: G2.Female_Peasant, base: G2.Superhero_Female_FullBody, ...info(G2.Female_Peasant) }, hair: G2, clips };
     for (const c of [...citizens, ...crowd]) attachModel(c);
     window.__charsReady = true;
