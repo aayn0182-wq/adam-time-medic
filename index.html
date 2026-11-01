@@ -1,0 +1,38 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 10 10%22><rect width=%2210%22 height=%2210%22 fill=%22%2300E5FF%22/></svg>">
+<title>ADAM: TIME MEDIC — Pompeii, 79 AD</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports":{"three":"./lib/three/three.module.js","three/addons/":"./lib/three/addons/"}}</script>
+</head><body>
+<div id="heat"></div><div id="ashfx"></div><div id="vignette"></div><div id="flash"></div><div id="fade"></div>
+<div id="hud" class="hidden">
+  <canvas id="compass" width="800" height="96"></canvas>
+  <div id="objective"><div class="obj-tag">NEW OBJECTIVE</div><div class="obj-line"></div><div class="obj-text">Save the injured and reach the harbor</div><div class="obj-sub" id="objSub">Injured treated 0/7 · Saved 0/7</div></div>
+  <div id="toast"></div>
+  <div id="checkpoint"><span class="spin"></span>CHECKPOINT</div>
+  <div id="mini"><div class="mini-lbl">TIME LEFT</div><div class="mini-time" id="miniTime">03:00</div><div class="mini-bar"><i id="miniBar"></i></div>
+    <div class="mini-hp"><span>+</span><div class="hpbar"><i id="hpBar"></i></div></div><div class="mini-hint">[Q] / [TAB] check chronometer</div></div>
+  <div id="stamina" class="hidden"><i></i></div>
+  <div id="vitals"></div><div id="hotbar"></div><div id="hotname"></div><div id="credits"></div><div id="district"></div>
+  <div id="cross"></div>
+  <div id="prompt"><span class="key">E</span><span id="promptText">Hold to treat</span><svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="17"/></svg></div>
+  <div id="markers"></div>
+</div>
+<div id="medic" class="hidden"><div class="m-title">TREAT WOUND</div><div class="m-step" id="mStep">Apply pressure</div>
+  <div id="mPressure"><div class="m-track"><div class="m-zone"></div><div class="m-marker"></div></div><div class="m-help"><span class="tapw">Press <span class="key">SPACE</span></span> when the marker is in the zone · <b id="mHits">0/3</b></div></div>
+  <div id="mBandage" class="hidden"><div class="m-keys" id="mKeys"></div><div class="m-help"><span class="tapw">Press the keys</span> in order to bandage</div></div>
+  <div class="m-penalty" id="mPen"></div></div>
+<div id="map" class="hidden"><canvas id="mapC" width="900" height="900"></canvas></div>
+<div id="shop" class="hidden"><div class="shop-in"><span class="cr" id="shopCr"></span><h2>TIME RESCUE DEPOT</h2><div id="shopBody"></div><div class="shop-note">Purchases persist in this browser (localStorage). Consumables bought from the menu go to your stash for the next run.</div><div style="text-align:center;margin-top:16px"><button id="shopClose">CLOSE</button></div></div></div>
+<div id="screen" class="screen">
+  <div class="s-inner">
+    <div class="s-kicker" id="sKicker">CHAPTER I</div>
+    <h1 id="sTitle">ADAM: TIME MEDIC</h1>
+    <div class="s-sub" id="sSub">Pompeii, 79 AD</div>
+    <div class="s-body" id="sBody"><p>A lovely sunny morning in Pompeii. Vesuvius is smoking a little. In <b>5 minutes</b> a pyroclastic surge arrives.<br>The Time Rescue Service sent Adam with one plaster. Well, five. Find the 7 injured, treat them and get them to the harbor.</p>
+      <div class="controls"><div><span class="key">W A S D</span>Move</div><div><span class="key">Mouse</span>Look</div><div><span class="key">Shift</span>Sprint</div><div><span class="key">E</span>Interact (hold)</div><div><span class="key">Q / Tab</span>Check chronometer</div><div><span class="key">Space</span>Jump / vault</div><div><span class="key">C / Ctrl</span>Crouch / crawl</div><div><span class="key">1–8</span>Hotbar</div><div><span class="key">F</span>Use item</div><div><span class="key">G</span>Drop carried</div><div><span class="key">V</span>Vehicle</div><div><span class="key">M</span>Map</div><div><span class="key">Esc</span>Pause</div></div></div>
+    <button id="sBtn">CLICK TO PLAY</button><button id="sShop" class="btn2">DEPOT</button>
+  </div>
+</div>
+<script type="module" src="./main.js"></script>
+</body></html>
