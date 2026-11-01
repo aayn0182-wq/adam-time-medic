@@ -1,5 +1,5 @@
 
 ## Asset credits
-- Characters & animations: **KayKit – Character Pack: Adventurers 1.0** by Kay Lousberg (kaylousberg.com), CC0 1.0 — https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0 (Rogue, Mage; weapons removed, 7 clips kept). License copy: `models/KAYKIT_LICENSE.txt`.
-- Textures: ambientCG, CC0.
-- three.js (MIT).
+- Characters: Quaternius — Universal Base Characters, Modular Fantasy Outfits (Peasant), Universal Animation Library — CC0 1.0 (quaternius.com; obtained via the github.com/lord3nd3r/ffxi-browser mirror). Roman tunic/stola/belt pieces are procedural.
+- Textures: ambientCG — CC0.
+- three.js — MIT.

@@ -1014,43 +1014,82 @@ function updateCrowd(t, dt, panic) {
   }
 }
 
-// ================= RIGGED CHARACTERS (KayKit Adventurers, CC0) =================
-const TUNIC_HEX = ['#ff4a36', '#2f9bff', '#ffc62e', '#3cd06a', '#b45cff', '#ff8a2e', '#fff2d8', '#ff5aa8', '#20c8c0', '#e8e040'];
+// ================= RIGGED CHARACTERS (Quaternius CC0: Universal Base Characters + Modular Fantasy Outfits + Universal Animation Library) =================
+const TUNIC_HEX = ['#e8553f', '#4f8fd8', '#e8c050', '#5ab070', '#a070d0', '#e88a40', '#f4ead2', '#e070a0', '#40b0a8', '#d8d060'];
+const SKIN_HEX = ['#e8b48c', '#c08660', '#f2c8a0', '#8e5e40'], HAIR_HEX = ['#3a2214', '#6a3a1a', '#c89040', '#9a948e', '#1e1410'];
+const SKIN_REF = new THREE.Color(0xd8a87c);
 const CHARS_ON = GFX !== 'low' && !/[?&]chars=0/.test(location.search);
-const _olMats = {}; function OUTLINE_MAT(s) { const k = s.toFixed(3); if (_olMats[k]) return _olMats[k];
-  const mt = new THREE.MeshBasicMaterial({ color: col('#2a1a12'), side: THREE.BackSide }); const w = 0.012 / s;
-  mt.onBeforeCompile = sh => { sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n transformed += normalize(objectNormal) * ' + w.toFixed(5) + ';'); };
+const CLIP = { Idle: 'Idle_Loop', Talk: 'Idle_Talking_Loop', Walking_A: 'Walk_Loop', Running_A: 'Jog_Fwd_Loop', Sprint: 'Sprint_Loop', Cheer: 'Dance_Loop', Lie_Idle: 'Death01', Sit_Floor_Idle: 'Sitting_Idle_Loop' };
+const _olMats = {}; function OUTLINE_MAT(w) { const k = w.toFixed(5); if (_olMats[k]) return _olMats[k];
+  const mt = new THREE.MeshBasicMaterial({ color: col('#2a1a12'), side: THREE.BackSide });
+  mt.onBeforeCompile = sh => { sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n transformed += normalize(objectNormal) * ' + k + ';'); };
   return (_olMats[k] = mt); }
-function attachModel(c, M) {
-  const d = c.def || c, female = !!d.female, m = SkeletonUtils.clone(M.g.scene), s = (female ? 1.62 : 1.74) / M.h;
-  const wrap = new THREE.Group(); wrap.add(m); m.scale.setScalar(s); m.position.y = -M.minY * s;
-  const tint = col(TUNIC_HEX[(d.tunic || 0) % TUNIC_HEX.length]).lerp(col('#ffffff'), 0.35);
-  const meshes = []; m.traverse(o => { if (o.isSkinnedMesh) meshes.push(o); });
-  for (const o of meshes) { o.castShadow = true; o.frustumCulled = false; const src = o.material;
-    o.material = toon({ map: src.map, color: /Body|Leg/i.test(o.name) ? tint : col('#ffffff') }, '#fff0d0', 2.5, 0.22);
-    const ol = new THREE.SkinnedMesh(o.geometry, OUTLINE_MAT(s)); ol.bind(o.skeleton, o.bindMatrix); ol.frustumCulled = false; ol.castShadow = false; o.parent.add(ol); ol.position.copy(o.position); ol.quaternion.copy(o.quaternion); ol.scale.copy(o.scale); }
-  let bone = null; m.traverse(o => { if (!bone && o.isBone && /lowerarm\.?l|forearm/i.test(o.name)) bone = o; });
-  if (bone && c.band) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.06 / s, 0.06 / s, 0.1 / s, 10), c.band.material); b.visible = false; bone.add(b); c.band.visible = false; c.band = b; }
+const seatMat = toon({ color: col('#a8784a') }, '#fff0d0', 3, 0.2);
+let CH = null;
+function buildPerson(d) {
+  const female = !!d.female, S = female ? CH.female : CH.male;
+  const rig = SkeletonUtils.clone(S.outfit.scene); const bones = {}; rig.traverse(o => { if (o.isBone) bones[o.name] = o; });
+  const skinTint = col(SKIN_HEX[(d.skin || 0) % 4]).multiply(new THREE.Color(1 / SKIN_REF.r, 1 / SKIN_REF.g, 1 / SKIN_REF.b));
+  const hairC = col(HAIR_HEX[(d.hair || 0) % 5]), tunicC = col(TUNIC_HEX[(d.tunic || 0) % 10]).lerp(col('#ffffff'), 0.25);
+  const meshes = [];
+  rig.traverse(o => { if (o.isSkinnedMesh) { meshes.push(o); const body = /Body|Legs/i.test(o.name); o.material = toon({ map: o.material.map, color: body ? tunicC : /Feet/i.test(o.name) ? col('#9a6a40') : skinTint }, '#fff0d0', 2.5, 0.2); } });
+  const base = SkeletonUtils.clone(S.base.scene); const grafts = []; base.traverse(o => { if (o.isSkinnedMesh) grafts.push(o); });
+  for (const g of grafts) { const mapped = g.skeleton.bones.map(bn => bones[bn.name]); if (mapped.some(x => !x)) continue;
+    const nm = g.name.toLowerCase(); if (/body|leg|arm|feet|foot|torso|hand/.test(nm) && !/head/.test(nm)) continue; // outfit already covers the body
+    g.skeleton = new THREE.Skeleton(mapped, g.skeleton.boneInverses); g.position.set(0, 0, 0); g.rotation.set(0, 0, 0); g.scale.set(1, 1, 1);
+    const eye = /eye(?!brow)/.test(nm); g.material = eye ? g.material : toon({ map: g.material.map, color: /brow/.test(nm) ? hairC.clone().multiplyScalar(1.3) : skinTint }, '#fff0d0', 2.5, 0.2);
+    rig.add(g); if (!eye) meshes.push(g); }
+  const head = bones.Head || bones.head; const hm = toon({ color: hairC }, '#fff0d0', 3, 0.15);
+  const styles = female ? ['Hair_Long', 'Hair_Buns'] : ['Hair_SimpleParted', 'Hair_Buzzed', 'Hair_Buzzed'];
+  const hs = d.style === 'bald' ? null : d.style === 'bun' ? 'Hair_Buns' : d.style === 'long' ? 'Hair_Long' : styles[(d.hair || 0) % styles.length];
+  rig.updateMatrixWorld(true);
+  for (const hn of [hs, d.beard ? 'Hair_Beard' : null]) if (hn && CH.hair[hn] && head) { const h = CH.hair[hn].scene.clone(true); h.traverse(o => { if (o.isMesh) { o.material = hm; o.castShadow = true; } }); rig.add(h); rig.updateMatrixWorld(true); head.attach(h); }
+  // Roman clothing: tunic (men, knee length) / stola (women, ankle length) + belt, as rigid pieces following spine & pelvis
+  { const u = S.h / 1.76, wp = n => bones[n] ? bones[n].getWorldPosition(new THREE.Vector3()) : null;
+    const pel = wp('pelvis'), neck = wp('neck_01'), calf = wp('calf_l'), foot = wp('foot_l'), sp2 = wp('spine_02');
+    const bbx = new THREE.Box3(); for (const o of meshes) if (/Body/i.test(o.name)) bbx.expandByObject(o, true); if (!bbx.isEmpty() && pel) { const cc = bbx.getCenter(new THREE.Vector3()); pel.x = cc.x; pel.z = cc.z; } if (pel) pel.z += 0.055 * u;
+    if (pel && neck && calf && foot) { const tm = toon({ color: col(TUNIC_HEX[(d.tunic || 0) % 10]).lerp(col('#cdbb98'), 0.35) }, '#fff0d0', 2.5, 0.2); tm.side = THREE.DoubleSide; const _q = 0, om = new THREE.MeshBasicMaterial({ color: col('#2a1a12'), side: THREE.BackSide });
+      const add = (geo, bone, pos, sz) => { const g = new THREE.Group(); const me = new THREE.Mesh(geo, tm); me.castShadow = true; const ol = new THREE.Mesh(geo, om); ol.scale.setScalar(1.045); g.add(me, ol); g.scale.set(1, 1, sz); g.position.copy(pos); rig.add(g); rig.updateMatrixWorld(true); bones[bone].attach(g); return g; };
+      const topY = neck.y - 0.05 * u, waistY = pel.y + 0.1 * u, hemY = female ? foot.y + 0.1 * u : calf.y + 0.08 * u;
+      add(new THREE.CylinderGeometry(0.19 * u, 0.195 * u, topY - waistY, 16), sp2 ? 'spine_02' : 'pelvis', new THREE.Vector3(pel.x, (topY + waistY) / 2, pel.z), 0.9);
+      add(new THREE.CylinderGeometry(0.215 * u, (female ? 0.34 : 0.3) * u, waistY - hemY + 0.04 * u, 18, 1, true), 'pelvis', new THREE.Vector3(pel.x, (waistY + hemY) / 2, pel.z), 0.92);
+      const sh = add(new THREE.SphereGeometry(0.235 * u, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), sp2 ? 'spine_02' : 'pelvis', new THREE.Vector3(pel.x, topY - 0.06 * u, pel.z), 0.7); sh.scale.y = 0.45;
+      const belt = new THREE.Mesh(new THREE.TorusGeometry(0.212 * u, 0.022 * u, 6, 20), toon({ color: col(female ? '#d8b060' : '#6a4424') }, '#fff0d0', 3, 0.2)); belt.rotation.x = Math.PI / 2; belt.scale.y = 0.75; belt.position.set(pel.x, waistY + 0.02 * u, pel.z); rig.add(belt); rig.updateMatrixWorld(true); bones.pelvis.attach(belt);
+      if (female) { const pa = new THREE.Mesh(new THREE.TorusGeometry(0.215 * u, 0.05 * u, 8, 20, Math.PI * 1.3), toon({ color: col(TUNIC_HEX[((d.tunic || 0) + 3) % 10]) }, '#fff0d0', 2.5, 0.2)); pa.position.set(pel.x, topY - 0.12 * u, pel.z); pa.rotation.set(0.6, 0, 0.7); rig.add(pa); rig.updateMatrixWorld(true); bones[sp2 ? 'spine_02' : 'pelvis'].attach(pa); } } }
+  for (const o of meshes) { o.castShadow = true; o.frustumCulled = false;
+    const ol = new THREE.SkinnedMesh(o.geometry, OUTLINE_MAT(S.upm * 0.006)); ol.bind(o.skeleton, o.bindMatrix); ol.frustumCulled = false; o.parent.add(ol); ol.position.copy(o.position); ol.quaternion.copy(o.quaternion); ol.scale.copy(o.scale); }
+  return { rig, bones };
+}
+function attachModel(c) {
+  const d = c.def || c, { rig, bones } = buildPerson(d), S = d.female ? CH.female : CH.male;
+  const s = (d.female ? 1.66 : 1.76) / S.h; const wrap = new THREE.Group(); wrap.add(rig); rig.scale.multiplyScalar(s); rig.position.y = -S.minY * s;
+  if (bones.lowerarm_l && c.band) { const bm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.09, 10), c.band.material); bm.visible = false; const k = new THREE.Vector3(); bones.lowerarm_l.getWorldScale(k); bm.scale.divideScalar(k.x * s || 1); bones.lowerarm_l.add(bm); c.band.visible = false; c.band = bm; }
   c.body.visible = false; c.root.add(wrap);
-  const mixer = new THREE.AnimationMixer(m), act = {}; for (const [n, clip] of Object.entries(M.clips)) act[n] = mixer.clipAction(clip);
-  c.md = { wrap, mixer, act, cur: null, acc: 0 }; c.md.mixer.timeScale = R(0.92, 1.08);
+  let seat = null; if (c.injury && INJURIES[c.injury].pose !== 'lie') { seat = new THREE.Mesh(new RoundedBoxGeometry(0.55, 0.42, 0.5, 2, 0.04), seatMat); seat.position.set(0, 0.21, -0.12); seat.castShadow = seat.receiveShadow = true; c.root.add(seat); }
+  const mixer = new THREE.AnimationMixer(rig), act = {}; for (const [k, n] of Object.entries(CLIP)) if (CH.clips[n]) { act[k] = mixer.clipAction(CH.clips[n]); }
+  if (act.Lie_Idle) { act.Lie_Idle.setLoop(THREE.LoopOnce, 1); act.Lie_Idle.clampWhenFinished = true; }
+  c.md = { wrap, mixer, act, cur: null, acc: 0, seat }; mixer.timeScale = R(0.92, 1.08);
 }
 function animModel(c, dt, panic) {
   const md = c.md; if (!md) return; let clip, ts = 1; md.wrap.position.set(0, 0, 0); md.wrap.rotation.set(0, 0, 0);
-  if (c.state === 'injured' || c.state === 'down') { const pz = INJURIES[c.injury].pose; clip = pz === 'lie' && c.state === 'injured' ? 'Lie_Idle' : 'Sit_Floor_Idle'; }
-  else if (c.state === 'carried') { clip = 'Lie_Idle'; md.wrap.position.y = c.body.position.y - 0.15; md.wrap.rotation.y = -Math.PI / 2; }
-  else { const sp = c.speed || 0; if (sp > 3.4 || (panic > 0.5 && sp > 0.3)) { clip = 'Running_A'; ts = clamp(sp / 5.5, 0.7, 1.5); } else if (sp > 0.25) { clip = 'Walking_A'; ts = clamp(sp / 1.6, 0.6, 1.6); } else clip = c.state === 'saved' ? 'Cheer' : 'Idle'; if (c.state === 'saved' && c.cheerT > 0) { c.cheerT -= dt; clip = 'Cheer'; } }
-  const a = md.act[clip] || md.act.Idle; if (md.cur !== a) { a.reset().setEffectiveWeight(1).fadeIn(0.25).play(); if (md.cur) md.cur.fadeOut(0.25); md.cur = a; }
-  a.timeScale = ts;
-  // distance LOD: far characters animate at lower rate
+  const down = c.state === 'injured' || c.state === 'down'; if (md.seat) md.seat.visible = down;
+  if (down) { const pz = INJURIES[c.injury].pose; clip = pz === 'lie' && c.state === 'injured' ? 'Lie_Idle' : 'Sit_Floor_Idle'; if (clip === 'Sit_Floor_Idle') md.wrap.position.z = -0.12; }
+  else if (c.state === 'carried') { clip = 'Lie_Idle'; md.wrap.position.y = c.body.position.y - 0.1; }
+  else { const sp = c.speed || 0; if (panic > 0.5 && sp > 0.3) { clip = sp > 4 ? 'Sprint' : 'Running_A'; ts = clamp(sp / 4, 0.8, 1.4); } else if (sp > 3.2) { clip = 'Running_A'; ts = clamp(sp / 4.2, 0.7, 1.5); } else if (sp > 0.25) { clip = 'Walking_A'; ts = clamp(sp / 1.4, 0.6, 1.6); }
+    else clip = c.state === 'saved' ? (c.cheerT > 0 ? 'Cheer' : 'Idle') : c.injury ? 'Idle' : 'Talk'; if (c.cheerT > 0) c.cheerT -= dt; }
+  const a = md.act[clip] || md.act.Idle; if (a && md.cur !== a) { a.reset(); if (clip === 'Lie_Idle') a.time = a.getClip().duration - 0.01; a.setEffectiveWeight(1).fadeIn(0.3).play(); if (md.cur) md.cur.fadeOut(0.3); md.cur = a; }
+  if (a) a.timeScale = ts;
   const dd = Math.hypot(c.pos.x - player.x, c.pos.y - player.z); md.acc += dt; const step = dd > 45 ? 0.1 : dd > 22 ? 0.033 : 0;
   if (md.acc >= step) { md.mixer.update(md.acc); md.acc = 0; }
 }
 if (CHARS_ON) {
-  const ld = new GLTFLoader(), load = u => new Promise((res, rej) => ld.load(u, res, undefined, rej));
-  Promise.all([load('models/Rogue.glb'), load('models/Mage.glb')]).then(gs => {
-    const Ms = gs.map(g => { g.scene.updateMatrixWorld(true); const box = new THREE.Box3().setFromObject(g.scene); const clips = {}; g.animations.forEach(k => clips[k.name] = k); return { g, h: box.max.y - box.min.y, minY: box.min.y, clips }; });
-    for (const c of [...citizens, ...crowd]) attachModel(c, Ms[(c.def || c).female ? 1 : 0]);
+  const ld = new GLTFLoader(), load = u => new Promise((res, rej) => ld.load('models/' + u + '.glb', res, undefined, rej));
+  const names = ['Male_Peasant', 'Female_Peasant', 'Superhero_Male_FullBody', 'Superhero_Female_FullBody', 'Hair_Long', 'Hair_Buns', 'Hair_Buzzed', 'Hair_SimpleParted', 'Hair_Beard', 'UAL_anims'];
+  Promise.all(names.map(load)).then(gs => { const G2 = Object.fromEntries(names.map((n, i) => [n, gs[i]]));
+    const info = o => { o.scene.updateMatrixWorld(true); const box = new THREE.Box3().setFromObject(o.scene); let gh = 1; o.scene.traverse(q => { if (q.isSkinnedMesh && /Body/.test(q.name)) { q.geometry.computeBoundingBox(); const bb = q.geometry.boundingBox; gh = Math.max(bb.max.y - bb.min.y, bb.max.z - bb.min.z); } }); return { h: box.max.y - box.min.y, minY: box.min.y, upm: gh / 1.76 }; };
+    const clips = {}; G2.UAL_anims.animations.forEach(k => clips[k.name] = k);
+    CH = { male: { outfit: G2.Male_Peasant, base: G2.Superhero_Male_FullBody, ...info(G2.Male_Peasant) }, female: { outfit: G2.Female_Peasant, base: G2.Superhero_Female_FullBody, ...info(G2.Female_Peasant) }, hair: G2, clips };
+    for (const c of [...citizens, ...crowd]) attachModel(c);
     window.__charsReady = true;
   }).catch(e => { console.warn('characters failed, using procedural', e); window.__charsReady = 'fail'; });
 } else window.__charsReady = 'off';
