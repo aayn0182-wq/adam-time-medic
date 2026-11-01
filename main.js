@@ -9,6 +9,8 @@ import { scene, P, col, clamp, sstep, lerp, R, toon, sun, sky, updateSmoke, upda
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { ITEMS, HOTBAR, INJURIES, Inventory } from './items.js';
 import { Sfx } from './audio.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
 const GAME = { duration: 390, maxHp: 100, walk: 4.2, sprint: 7.0, eye: 1.68 };
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
@@ -26,19 +28,20 @@ const skinMat = toon({ color: col(P.skin).multiplyScalar(0.8), emissive: col('#3
 const metalMat = toon({ color: col('#24262c') }, '#7fdfff', 2.0, 0.35);
 const metal2 = toon({ color: col('#3a3d46') }, '#ffb070', 2.5, 0.3);
 const cyanMat = new THREE.MeshBasicMaterial({ color: col(P.cyan).multiplyScalar(1.15), toneMapped: false });
+const mustardMat = toon({ color: col('#e0a82e') }, '#fff0c0', 2.5, 0.25), gloveMat = toon({ color: col('#5aa8d8') }, '#d8f4ff', 2.5, 0.25);
 { // forearm along +X; top of wrist = +Y
-  const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.062, 0.42, 24), navyMat); sleeve.rotation.z = Math.PI / 2; sleeve.position.x = -0.25; arm.add(sleeve);
-  const cuff = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.009, 8, 24), navyMat); cuff.rotation.y = Math.PI / 2; cuff.position.x = -0.04; arm.add(cuff);
+  const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.062, 0.42, 24), mustardMat); sleeve.rotation.z = Math.PI / 2; sleeve.position.x = -0.25; arm.add(sleeve);
+  const cuff = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.009, 8, 24), metal2); cuff.rotation.y = Math.PI / 2; cuff.position.x = -0.04; arm.add(cuff);
   const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.012, 0.016), redMat); stripe.position.set(-0.25, 0.012, 0.056); stripe.rotation.x = 0.3; arm.add(stripe);
   const band = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.06, 0.03, 24), redMat); band.rotation.z = Math.PI / 2; band.position.x = -0.38; arm.add(band);
-  const wrist = new THREE.Mesh(new THREE.CylinderGeometry(0.029, 0.036, 0.12, 20), skinMat); wrist.rotation.z = Math.PI / 2; wrist.position.x = 0.01; wrist.scale.z = 0.75; arm.add(wrist);
-  const palm = new THREE.Mesh(new RoundedBoxGeometry(0.1, 0.034, 0.085, 3, 0.014), skinMat); palm.position.set(0.11, -0.004, 0); arm.add(palm);
+  const wrist = new THREE.Mesh(new THREE.CylinderGeometry(0.029, 0.036, 0.12, 20), gloveMat); wrist.rotation.z = Math.PI / 2; wrist.position.x = 0.01; wrist.scale.z = 0.75; arm.add(wrist);
+  const palm = new THREE.Mesh(new RoundedBoxGeometry(0.1, 0.034, 0.085, 3, 0.014), gloveMat); palm.position.set(0.11, -0.004, 0); arm.add(palm);
   const fingers = [[-0.03, 0.05], [-0.01, 0.054], [0.012, 0.05], [0.032, 0.042]];
   fingers.forEach(([z, l]) => { const g = new THREE.Group(); g.position.set(0.16, -0.004, z); g.rotation.z = -1.1;
-    const a = new THREE.Mesh(new THREE.CapsuleGeometry(0.0112, l * 0.5, 8, 14), skinMat); a.rotation.z = Math.PI / 2; a.position.x = l * 0.3; g.add(a);
-    const g2 = new THREE.Group(); g2.position.x = l * 0.62; g2.rotation.z = -1.3; const b = new THREE.Mesh(new THREE.CapsuleGeometry(0.0105, l * 0.38, 8, 14), skinMat); b.rotation.z = Math.PI / 2; b.position.x = l * 0.24; g2.add(b); g.add(g2); arm.add(g); });
+    const a = new THREE.Mesh(new THREE.CapsuleGeometry(0.0112, l * 0.5, 8, 14), gloveMat); a.rotation.z = Math.PI / 2; a.position.x = l * 0.3; g.add(a);
+    const g2 = new THREE.Group(); g2.position.x = l * 0.62; g2.rotation.z = -1.3; const b = new THREE.Mesh(new THREE.CapsuleGeometry(0.0105, l * 0.38, 8, 14), gloveMat); b.rotation.z = Math.PI / 2; b.position.x = l * 0.24; g2.add(b); g.add(g2); arm.add(g); });
   const th = new THREE.Group(); th.position.set(0.08, -0.008, 0.045); th.rotation.set(0.4, -0.7, -0.3);
-  const t1 = new THREE.Mesh(new THREE.CapsuleGeometry(0.011, 0.04, 4, 10), skinMat); t1.rotation.z = Math.PI / 2; t1.position.x = 0.025; th.add(t1); arm.add(th);
+  const t1 = new THREE.Mesh(new THREE.CapsuleGeometry(0.011, 0.04, 4, 10), gloveMat); t1.rotation.z = Math.PI / 2; t1.position.x = 0.025; th.add(t1); arm.add(th);
 }
 // chronometer
 const dialC = document.createElement('canvas'); dialC.width = dialC.height = 512; const dctx = dialC.getContext('2d');
@@ -105,7 +108,7 @@ const paint = new ShaderPass({
     float l=dot(col,vec3(0.299,0.587,0.114));
     col = mix(col, col*0.8+navy*0.25, (1.0-smoothstep(0.0,0.3,l))*0.15);
     col = mix(col, col*vec3(1.06,0.98,0.9)+lava*0.04, smoothstep(0.4,1.0,l)*0.5);
-    col = mix(vec3(dot(col,vec3(0.299,0.587,0.114))), col, sat); col *= vec3(1.03, 1.0, 0.95);
+    col = mix(vec3(dot(col,vec3(0.299,0.587,0.114))), col, sat); col *= vec3(1.05, 1.0, 0.92);
     
     gl_FragColor=vec4(col,1.0); }`
 });
@@ -177,7 +180,7 @@ function makeCitizen(o) {
   if (hs === 'curly') for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2; mk(new THREE.SphereGeometry(0.05, 8, 6), hairM, head, Math.cos(a) * 0.11, 0.13 + Math.sin(i) * 0.02, Math.sin(a) * 0.1 - 0.02); }
   if (o.beard) mk(new THREE.SphereGeometry(0.08, 10, 8, 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.5), hairM, head, 0, 0.0, 0.05);
   if (o.wreath) mk(new THREE.TorusGeometry(0.135, 0.015, 6, 20), toon({ color: col('#6cc070') }, '#fff', 2, 0.2), head, 0, 0.12, 0).rotation.x = Math.PI / 2 - 0.2;
-  return { root, body, legs, arms, head, band, blink };
+  return { root, body, legs, arms, head, band, blink, def: o };
 }
 const injuredDefs = [
   { name: 'Marcus', x: -3.4, z: -6, fx: 1, fz: 0, skin: 0, tunic: 0, hair: 0, style: 'short', beard: true, injury: 'cut', line: 'says it is "barely a scratch".' },
@@ -222,7 +225,7 @@ function poseCitizen(c, t, dt) {
     head.rotation.set(Math.sin(t * 1.5 + c.phase) * 0.03, 0, 0);
   }
   c.ring.visible = c.state === 'injured' || c.state === 'down'; if (c.ring.visible) { c.ring.position.set(c.pos.x, 0.1, c.pos.y); c.ring.scale.setScalar(1 + 0.15 * Math.sin(t * 4)); c.ring.material.color.set(c.state === 'down' ? P.cyan : '#ff5a3a'); }
-  c.root.position.set(c.pos.x, 0, c.pos.y); c.root.rotation.y = c.yaw;
+  c.root.position.set(c.pos.x, 0, c.pos.y); c.root.rotation.y = c.yaw; animModel(c, dt, 0);
 }
 // ---------- debris hazard ----------
 const rockGeo = new THREE.IcosahedronGeometry(0.55, 2);
@@ -339,7 +342,7 @@ addEventListener('mousemove', e => {
   if (!G.locked || (G.state !== 'play' && G.state !== 'medic')) return;
   player.yaw -= e.movementX * 0.0022; player.pitch = clamp(player.pitch - e.movementY * 0.0022, -1.35, 1.35);
 });
-addEventListener('mousedown', () => { if (G.state === 'medic') medicKey('Space'); });
+addEventListener('pointerdown', e => { if (G.state === 'medic' && e.button === 0 && !(e.target.closest && e.target.closest('.tmk'))) { e.preventDefault(); medicKey('Space'); } });
 document.addEventListener('pointerlockchange', () => {
   G.locked = document.pointerLockElement === canvas;
   if (!G.locked && (G.state === 'play' || G.state === 'medic')) pause();
@@ -412,13 +415,17 @@ function startMedic(c, tool) {
   $('medic').classList.remove('hidden'); $('mPressure').classList.remove('hidden'); $('mBandage').classList.add('hidden'); $('mStep').textContent = `${c.name} — ${INJURIES[c.injury].label} · ${T.icon} ${T.name}`; $('mPen').textContent = ''; $('mHits').textContent = `0/${T.hits}`;
   Sfx.chime();
 }
-function medicMarker() { const m = G.medic; return 0.5 + 0.48 * Math.sin(m.t * m.speed); }
+function medicMarker() { const m = G.medic; return 0.5 + 0.48 * Math.sin((m.ph || 0) + m.t * m.speed); }
+let _mLast = 0;
 function penalty(sec, msg) { G.timeLeft -= sec; $('mPen').textContent = `${msg}  −${sec}s`; const el = $('medic'); el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); Sfx.fail(); }
 function medicKey(code) {
   const m = G.medic; if (!m) return;
   if (m.step === 'pressure' && code === 'Space') {
-    if (Math.abs(medicMarker() - m.zone) < m.w / 2) { m.hits++; Sfx.hit(); $('mHits').textContent = `${m.hits}/${m.need}`; $('mPen').textContent = '';
-      m.zone = R(0.2, 0.8); m.w = Math.max(0.12, m.w - 0.02); m.speed += 0.4;
+    const now = performance.now(); if (now - _mLast < 180) return; _mLast = now; // ignore duplicate events (touch + synthetic mouse, key + click)
+    const tol = m.w / 2 + 0.035, cur = medicMarker(); // forgiving: anything the player SAW in the last ~220 ms (input/frame latency) or the current position
+    const seen = (m.hist || []).some(([ts, v]) => now - ts < 220 && Math.abs(v - m.zone) < tol);
+    if (seen || Math.abs(cur - m.zone) < tol) { m.hist = []; m.hits++; Sfx.hit(); $('mHits').textContent = `${m.hits}/${m.need}`; $('mPen').textContent = '';
+      m.zone = R(0.2, 0.8); m.w = Math.max(0.14, m.w - 0.015); { const p = (m.ph || 0) + m.t * m.speed; m.speed += 0.25; m.ph = p - m.t * m.speed; }
       if (m.hits >= m.need) { m.step = 'bandage'; m.seq = Array.from({ length: m.nkeys }, () => ['KeyW', 'KeyA', 'KeyS', 'KeyD'][Math.floor(Math.random() * 4)]); m.idx = 0;
         $('mPressure').classList.add('hidden'); $('mBandage').classList.remove('hidden'); $('mStep').textContent = `${m.c.name} — ${m.tool === 'defib' ? 'Charge & shock' : m.tool === 'splint' ? 'Fix the splint' : 'Dress the wound'}`; drawKeys(); }
     } else penalty(3, 'MISSED');
@@ -436,7 +443,7 @@ function finishMedic() {
   else { c.state = 'down'; toast(INJURIES[c.injury].walk ? `${c.name.toUpperCase()} WAITS — TOO MANY FOLLOWERS. COME BACK!` : `${c.name.toUpperCase()} ${c.line.toUpperCase()} PICK UP: E`, 3.2); }
   Sfx.success(); updateObjective();
 }
-window.__medicSolve = () => { const m = G.medic; if (!m) return; while (G.medic && G.medic.step === 'pressure') { m.t = Math.asin(clamp((m.zone - 0.5) / 0.48, -1, 1)) / m.speed; medicKey('Space'); } if (G.medic) for (const k of [...G.medic.seq]) medicKey(k); };
+window.__medicSolve = () => { const m = G.medic; if (!m) return; while (G.medic && G.medic.step === 'pressure') { m.t = (Math.asin(clamp((m.zone - 0.5) / 0.48, -1, 1)) - (m.ph || 0)) / m.speed; m.shown = null; m.hist = []; _mLast = 0; medicKey('Space'); } if (G.medic) for (const k of [...G.medic.seq]) medicKey(k); };
 const followers = () => citizens.filter(o => o.state === 'follow');
 const maxFollowers = () => 3 + save.upg.carry;
 const carryStretcher = () => !!save.owned.stretcher;
@@ -535,9 +542,15 @@ function crumbAt(dist) {
   for (let i = crumbs.length - 1; i >= 0; i--) { const [x, z] = crumbs[i]; const d = Math.hypot(x - px, z - pz); if (acc + d >= dist) { const k = (dist - acc) / d; return [lerp(px, x, k), lerp(pz, z, k)]; } acc += d; px = x; pz = z; }
   return [px, pz];
 }
+function rescueJuice(c) {
+  const f = $('flash'); f.style.transition = 'none'; f.style.background = 'radial-gradient(circle, rgba(255,230,140,.9), rgba(0,229,255,.35) 60%, rgba(0,0,0,0))'; f.style.opacity = 0.8;
+  requestAnimationFrame(() => { f.style.transition = 'opacity .9s'; f.style.opacity = 0; setTimeout(() => { f.style.background = ''; f.style.transition = ''; }, 950); });
+  let pop = $('savedPop'); if (!pop) { pop = document.createElement('div'); pop.id = 'savedPop'; document.body.appendChild(pop); }
+  pop.textContent = `⌛ +1 SAVED  ${G.saved}/${NINJ}`; pop.classList.remove('go'); void pop.offsetWidth; pop.classList.add('go'); G.hitFlash = 0;
+  c.cheerT = 2.5; }
 function rescue(c) {
   c.state = 'saved'; G.saved++; c.savedSpot = [64.5, -40 + G.saved * 1.8]; const cr = INJURIES[c.injury].cr;
-  save.credits += cr; G.earned += cr; persist(); Sfx.success(); Sfx.coin(); toast(`${c.name.toUpperCase()} SAVED  ${G.saved}/${NINJ}   +${cr} ⌛`); updateObjective(); buildHotbar();
+  save.credits += cr; G.earned += cr; persist(); Sfx.success(); Sfx.coin(); toast(`${c.name.toUpperCase()} SAVED  ${G.saved}/${NINJ}   +${cr} ⌛`); rescueJuice(c); updateObjective(); buildHotbar();
   followers().forEach((o, i) => o.rank = i);
 }
 function updateCitizens(t, dt) {
@@ -629,6 +642,7 @@ $('vitals').innerHTML = vitalRows.map(([k, ic, n, c]) => `<div class="vt" id="vt
 const vEls = Object.fromEntries(vitalRows.map(([k]) => [k, { row: $('vt_' + k), bar: $('vt_' + k).querySelector('i'), val: $('vt_' + k).querySelector('b') }]));
 let dialAcc = 0, vAcc = 0;
 function updateHUD(dt, t) {
+  { const q = G.look > 0.4; vEls.air.row.style.display = q || V.air < 85 ? '' : 'none'; vEls.temp.row.style.display = q || V.temp > 37.4 || player.z < -40 ? '' : 'none'; const pu = document.querySelector('#vitals .pulse'); if (pu) pu.style.display = q || V.pulse > 110 ? '' : 'none'; }
   const heading = -THREE.MathUtils.radToDeg(player.yaw); drawCompass(heading);
   $('miniTime').textContent = fmt(G.timeLeft); $('miniTime').classList.toggle('low', G.timeLeft < 60); $('miniBar').style.width = (100 * clamp(G.timeLeft / GAME.duration)) + '%';
   $('hpBar').style.width = V.hp + '%'; $('hpBar').style.background = V.hp < 100 ? P.paramedicRed : P.cyan;
@@ -650,7 +664,7 @@ function updateHUD(dt, t) {
   citizens.forEach((c, i) => { if (near.includes(c)) placeMarker(markerEls[i], c.pos.x, 1.6, c.pos.y, `${c.name} · ${Math.round(Math.hypot(c.pos.x - player.x, c.pos.y - player.z))} m`); else markerEls[i].style.display = 'none'; });
   placeMarker(depotEl, DEPOT[0], 3.5, DEPOT[1], `DEPOT ${Math.round(Math.hypot(DEPOT[0] - player.x, DEPOT[1] - player.z))} m`);
   placeMarker(harborEl, 62, 3.5, -30, `HARBOR ${Math.round(Math.hypot(62 - player.x, -30 - player.z))} m`);
-  if (G.medic) { const m = G.medic; document.querySelector('.m-zone').style.left = ((m.zone - m.w / 2) * 100) + '%'; document.querySelector('.m-zone').style.width = (m.w * 100) + '%'; document.querySelector('.m-marker').style.left = (medicMarker() * 100) + '%'; }
+  if (G.medic) { const m = G.medic; document.querySelector('.m-zone').style.left = ((m.zone - m.w / 2) * 100) + '%'; document.querySelector('.m-zone').style.width = (m.w * 100) + '%'; m.shown = medicMarker(); { const n = performance.now(); (m.hist || (m.hist = [])).push([n, m.shown]); while (m.hist.length && n - m.hist[0][0] > 300) m.hist.shift(); } document.querySelector('.m-marker').style.left = (m.shown * 100) + '%'; }
   dialAcc += dt; if (G.look > 0.01 || dialAcc > 0.5) { dialAcc = 0; drawDial(G.timeLeft, clamp(G.timeLeft / GAME.duration), V.hp, G.hitFlash); }
   if (G.mapOpen) drawMap();
 }
@@ -817,7 +831,7 @@ function frame() {
 reset(); screen('start'); if (MOBILE) initTouch(); $('screen').dataset.kind = 'start';
 Promise.all(['700 30px Rajdhani', '600 30px Rajdhani', '700 30px "Barlow Condensed"'].map(f => document.fonts.load(f))).finally(() => { drawDial(GAME.duration, 1, 100, 0); window.ready = true; });
 requestAnimationFrame(frame);
-window.__game = { G, V, player, citizens, keys, pickups, blockers, get inv() { return inv; }, get save() { return save; }, ITEMS, Inventory,
+window.__game = { startMedic: (i, tool) => startMedic(citizens[i], tool), get crowd() { return crowd; }, G, V, player, citizens, keys, pickups, blockers, get inv() { return inv; }, get save() { return save; }, ITEMS, Inventory,
   teleport(x, z, yaw = player.yaw) { player.x = x; player.z = z; player.yaw = yaw; crumbs.push([x, z]); }, setTime(s) { G.timeLeft = s; }, damage, solve: () => window.__medicSolve(),
   debris: () => debrisList.length, pause, openShop, closeShop, buy, select: selectSlot, use: useSelected, key: onKey, act, setCredits(n) { save.credits = n; persist(); buildHotbar(); }, resetSave() { save = defSave(); persist(); }, resolve, blockedBy, colliders, walkable, scene, sky, vesMat };
 
@@ -996,9 +1010,50 @@ function updateCrowd(t, dt, panic) {
     else if (c.speed < 0.1) { const g = Math.sin(t * 2.2 + c.talk); arms[0].rotation.set(-0.3 - 0.5 * Math.max(0, g), 0, 0.15); arms[1].rotation.set(-0.2, 0, -0.1 - 0.2 * Math.max(0, -g)); head.rotation.set(0, Math.sin(t * 0.6 + c.talk) * 0.5, 0); }
     else { arms.forEach((a, i) => a.rotation.set(-Math.sin(c.phase + i * Math.PI) * 0.55 * k, 0, (i ? -1 : 1) * 0.08)); head.rotation.set(0, 0, 0); }
     if (c.blink) { const bl = (t * 0.7 + c.phase * 0.01 + c.talk) % 4 < 0.12 ? 0.1 : 1; c.blink.forEach(e => e.scale.y = bl); }
-    c.root.position.set(c.pos.x, 0, c.pos.y); c.root.rotation.y = c.yaw;
+    c.root.position.set(c.pos.x, 0, c.pos.y); c.root.rotation.y = c.yaw; animModel(c, dt, panic);
   }
 }
+
+// ================= RIGGED CHARACTERS (KayKit Adventurers, CC0) =================
+const TUNIC_HEX = ['#ff4a36', '#2f9bff', '#ffc62e', '#3cd06a', '#b45cff', '#ff8a2e', '#fff2d8', '#ff5aa8', '#20c8c0', '#e8e040'];
+const CHARS_ON = GFX !== 'low' && !/[?&]chars=0/.test(location.search);
+const _olMats = {}; function OUTLINE_MAT(s) { const k = s.toFixed(3); if (_olMats[k]) return _olMats[k];
+  const mt = new THREE.MeshBasicMaterial({ color: col('#2a1a12'), side: THREE.BackSide }); const w = 0.012 / s;
+  mt.onBeforeCompile = sh => { sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n transformed += normalize(objectNormal) * ' + w.toFixed(5) + ';'); };
+  return (_olMats[k] = mt); }
+function attachModel(c, M) {
+  const d = c.def || c, female = !!d.female, m = SkeletonUtils.clone(M.g.scene), s = (female ? 1.62 : 1.74) / M.h;
+  const wrap = new THREE.Group(); wrap.add(m); m.scale.setScalar(s); m.position.y = -M.minY * s;
+  const tint = col(TUNIC_HEX[(d.tunic || 0) % TUNIC_HEX.length]).lerp(col('#ffffff'), 0.35);
+  const meshes = []; m.traverse(o => { if (o.isSkinnedMesh) meshes.push(o); });
+  for (const o of meshes) { o.castShadow = true; o.frustumCulled = false; const src = o.material;
+    o.material = toon({ map: src.map, color: /Body|Leg/i.test(o.name) ? tint : col('#ffffff') }, '#fff0d0', 2.5, 0.22);
+    const ol = new THREE.SkinnedMesh(o.geometry, OUTLINE_MAT(s)); ol.bind(o.skeleton, o.bindMatrix); ol.frustumCulled = false; ol.castShadow = false; o.parent.add(ol); ol.position.copy(o.position); ol.quaternion.copy(o.quaternion); ol.scale.copy(o.scale); }
+  let bone = null; m.traverse(o => { if (!bone && o.isBone && /lowerarm\.?l|forearm/i.test(o.name)) bone = o; });
+  if (bone && c.band) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.06 / s, 0.06 / s, 0.1 / s, 10), c.band.material); b.visible = false; bone.add(b); c.band.visible = false; c.band = b; }
+  c.body.visible = false; c.root.add(wrap);
+  const mixer = new THREE.AnimationMixer(m), act = {}; for (const [n, clip] of Object.entries(M.clips)) act[n] = mixer.clipAction(clip);
+  c.md = { wrap, mixer, act, cur: null, acc: 0 }; c.md.mixer.timeScale = R(0.92, 1.08);
+}
+function animModel(c, dt, panic) {
+  const md = c.md; if (!md) return; let clip, ts = 1; md.wrap.position.set(0, 0, 0); md.wrap.rotation.set(0, 0, 0);
+  if (c.state === 'injured' || c.state === 'down') { const pz = INJURIES[c.injury].pose; clip = pz === 'lie' && c.state === 'injured' ? 'Lie_Idle' : 'Sit_Floor_Idle'; }
+  else if (c.state === 'carried') { clip = 'Lie_Idle'; md.wrap.position.y = c.body.position.y - 0.15; md.wrap.rotation.y = -Math.PI / 2; }
+  else { const sp = c.speed || 0; if (sp > 3.4 || (panic > 0.5 && sp > 0.3)) { clip = 'Running_A'; ts = clamp(sp / 5.5, 0.7, 1.5); } else if (sp > 0.25) { clip = 'Walking_A'; ts = clamp(sp / 1.6, 0.6, 1.6); } else clip = c.state === 'saved' ? 'Cheer' : 'Idle'; if (c.state === 'saved' && c.cheerT > 0) { c.cheerT -= dt; clip = 'Cheer'; } }
+  const a = md.act[clip] || md.act.Idle; if (md.cur !== a) { a.reset().setEffectiveWeight(1).fadeIn(0.25).play(); if (md.cur) md.cur.fadeOut(0.25); md.cur = a; }
+  a.timeScale = ts;
+  // distance LOD: far characters animate at lower rate
+  const dd = Math.hypot(c.pos.x - player.x, c.pos.y - player.z); md.acc += dt; const step = dd > 45 ? 0.1 : dd > 22 ? 0.033 : 0;
+  if (md.acc >= step) { md.mixer.update(md.acc); md.acc = 0; }
+}
+if (CHARS_ON) {
+  const ld = new GLTFLoader(), load = u => new Promise((res, rej) => ld.load(u, res, undefined, rej));
+  Promise.all([load('models/Rogue.glb'), load('models/Mage.glb')]).then(gs => {
+    const Ms = gs.map(g => { g.scene.updateMatrixWorld(true); const box = new THREE.Box3().setFromObject(g.scene); const clips = {}; g.animations.forEach(k => clips[k.name] = k); return { g, h: box.max.y - box.min.y, minY: box.min.y, clips }; });
+    for (const c of [...citizens, ...crowd]) attachModel(c, Ms[(c.def || c).female ? 1 : 0]);
+    window.__charsReady = true;
+  }).catch(e => { console.warn('characters failed, using procedural', e); window.__charsReady = 'fail'; });
+} else window.__charsReady = 'off';
 // ---- pigeons ----
 const pigeons = [];
 { const gm = toon({ color: col('#9aa0aa') }, '#ffffff', 2.5, 0.25), hm = toon({ color: col('#5a7a8a') }, '#fff', 2.5, 0.25), wm = toon({ color: col('#7a808a') }, '#fff', 2.5, 0.2);

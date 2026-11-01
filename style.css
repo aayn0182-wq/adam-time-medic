@@ -159,3 +159,8 @@ body.touch{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-t
 .settings input[type=range]{accent-color:#00e5ff;pointer-events:auto}.settings .chk{grid-template-columns:auto;font:600 17px Rajdhani;letter-spacing:1px;cursor:pointer}
 .settings select{background:#10161f;color:#fff;border:1px solid #00e5ff;font:600 16px Rajdhani;padding:4px;pointer-events:auto}#gfxV{font:500 12px Rajdhani;letter-spacing:0;white-space:nowrap}
 .settings input[type=checkbox]{accent-color:#00e5ff;width:18px;height:18px;vertical-align:middle;pointer-events:auto}
+
+#vitals{transform:scale(.82);transform-origin:left bottom}
+#savedPop{position:fixed;left:50%;top:28%;transform:translate(-50%,-50%) scale(.6);font:700 54px "Barlow Condensed";letter-spacing:3px;color:#fff3c0;text-shadow:0 0 24px #ffb020,0 0 8px #00e5ff;opacity:0;pointer-events:none;z-index:6}
+#savedPop.go{animation:spop 1.8s ease-out}
+@keyframes spop{0%{opacity:0;transform:translate(-50%,-50%) scale(.6)}15%{opacity:1;transform:translate(-50%,-50%) scale(1.15)}30%{transform:translate(-50%,-50%) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-80%) scale(1)}}
