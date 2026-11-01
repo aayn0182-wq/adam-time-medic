@@ -97,10 +97,12 @@ let gtao = null; if (GFX === 'high' && HQTEST && /[?&]ao=1/.test(location.search
 const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.28, 0.45, 0.9); composer.addPass(bloom);
 composer.addPass(new OutputPass());
 const paint = new ShaderPass({
-  uniforms: { tDiffuse: { value: null }, sunP: { value: new THREE.Vector3(0.5, 0.8, 0) }, shaft: { value: 0 }, sat: { value: 1.25 }, res: { value: new THREE.Vector2(1, 1) }, navy: { value: col(P.navy) }, lava: { value: col(P.lava) } },
+  uniforms: { doom: { value: 0 }, flash: { value: 0 }, tDiffuse: { value: null }, sunP: { value: new THREE.Vector3(0.5, 0.8, 0) }, shaft: { value: 0 }, sat: { value: 1.25 }, res: { value: new THREE.Vector2(1, 1) }, navy: { value: col(P.navy) }, lava: { value: col(P.lava) } },
   vertexShader: 'varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
-  fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 res; uniform vec3 navy, lava, sunP; uniform float shaft, sat; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 res; uniform vec3 navy, lava, sunP; uniform float shaft, sat, doom, flash; varying vec2 vUv;
   void main(){ vec3 col=texture2D(tDiffuse,vUv).rgb;
+    { vec2 px = 1.0 / res; vec3 a = texture2D(tDiffuse, vUv + vec2(px.x, 0.0)).rgb, b = texture2D(tDiffuse, vUv - vec2(px.x, 0.0)).rgb, c2 = texture2D(tDiffuse, vUv + vec2(0.0, px.y)).rgb, d2 = texture2D(tDiffuse, vUv - vec2(0.0, px.y)).rgb;
+      vec3 mn = min(col, min(min(a, b), min(c2, d2))), mx = max(col, max(max(a, b), max(c2, d2))); vec3 amp = sqrt(clamp(min(mn, 1.0 - mx) / max(mx, 1e-4), 0.0, 1.0)); vec3 w = -amp / 6.5; col = clamp((col + (a + b + c2 + d2) * w) / (1.0 + 4.0 * w), 0.0, 1.0); }
     if (shaft > 0.0 && sunP.z > 0.0) { vec2 dv = (sunP.xy - vUv) / 14.0; vec2 uv = vUv; float acc = 0.0, w = 1.0;
       for (int i = 0; i < 14; i++) { uv += dv; vec3 c = texture2D(tDiffuse, clamp(uv, 0.001, 0.999)).rgb; acc += smoothstep(0.85, 1.0, dot(c, vec3(0.333))) * w; w *= 0.9; }
       float fall = 1.0 - smoothstep(0.0, 0.75, length((vUv - sunP.xy) * vec2(res.x / res.y, 1.0)));
@@ -108,7 +110,10 @@ const paint = new ShaderPass({
     float l=dot(col,vec3(0.299,0.587,0.114));
     col = mix(col, col*0.8+navy*0.25, (1.0-smoothstep(0.0,0.3,l))*0.15);
     col = mix(col, col*vec3(1.06,0.98,0.9)+lava*0.04, smoothstep(0.4,1.0,l)*0.5);
-    col = mix(vec3(dot(col,vec3(0.299,0.587,0.114))), col, sat); col *= vec3(1.05, 1.0, 0.92);
+    col = mix(vec3(dot(col,vec3(0.299,0.587,0.114))), col, sat * mix(0.78, 0.7, doom)); col *= mix(vec3(1.04, 0.97, 0.9), vec3(1.15, 0.82, 0.7), doom);
+    col = clamp(col, 0.0, 1.0); col = col * col * (3.0 - 2.0 * col) * 0.35 + col * 0.65; // S-curve contrast
+    col *= 1.0 - doom * 0.25; col += flash * vec3(0.10, 0.09, 0.12);
+    float vg = smoothstep(0.95, 0.35, length((vUv - 0.5) * vec2(1.1, 1.0))); col *= mix(0.72, 1.0, vg);
     
     gl_FragColor=vec4(col,1.0); }`
 });
@@ -117,7 +122,7 @@ const TEST = /[?&]test=1/.test(location.search);
 const MOBILE = /[?&]touch=1/.test(location.search) || matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 if (MOBILE) document.body.classList.add('touch');
 const touchMove = { on: false, x: 0, z: 0 };
-const PR = { low: 1, medium: 1.5, high: 2 };
+const PR = { low: 1, medium: 2, high: 2 };
 let pixelRatio = TEST && !/hq=1/.test(location.search) ? 0.5 : Math.min(devicePixelRatio || 1, PR[GFX]);
 function resize() {
   renderer.setPixelRatio(pixelRatio); renderer.setSize(innerWidth, innerHeight, false); composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight);
@@ -291,7 +296,7 @@ const upgPrice = k => UPG[k].base * (save.upg[k] + 1);
 
 // ================= GAME STATE =================
 const $ = id => document.getElementById(id);
-const G = { state: 'start', locked: false };
+const G = { state: 'start', locked: false, flashL: 0 };
 const player = { x: 0, z: 9, yaw: 0, pitch: 0, phase: 0, speed: 0, vx: 0, vz: 0, eyeDrop: 0, y: 0, vy: 0, crouch: 0, riding: null };
 let crumbs = [], inv = new Inventory(), sel = 0, carried = null;
 const keys = {};
@@ -754,7 +759,7 @@ function onKey(code) {
 const clock = new THREE.Clock(); let fpsAcc = 0, fpsN = 0;
 const nz = (t, f, o) => Math.sin(t * f * 0.45 + o) * 0.6 + Math.sin(t * f * 0.9 + o * 1.7) * 0.4;
 let worldT = 0;
-const DAY = { sun: col('#ffe0a8'), hemiS: col('#a8d4ff'), hemiG: col('#d8a070'), fog: col('#cfe6fa') }, DOOM = { sun: col('#ff7a3a'), hemiS: col('#4a5a88'), hemiG: col('#2a1c16'), fog: col('#4a2c22') };
+const DAY = { sun: col('#ffb47a'), hemiS: col('#a49a92'), hemiG: col('#6a4a34'), fog: col('#a8988a') }, DOOM = { sun: col('#ff5a28'), hemiS: col('#4a3438'), hemiG: col('#1e1210'), fog: col('#3a1c16') };
 const tmpC = new THREE.Color(), VES_DAY = col('#d8c8b4'), VES_DOOM = col('#3a2e2a'), SOM_DAY = col('#b8b8c0'), SOM_DOOM = col('#241c1a');
 function frame() {
   requestAnimationFrame(frame);
@@ -779,10 +784,12 @@ function frame() {
   // atmosphere: sunny morning -> plume grows -> last minute darkens & reddens
   const prog = G.state === 'start' ? 0.1 : clamp(1 - G.timeLeft / GAME.duration), doom = G.state === 'start' ? 0 : clamp(sstep(60, 0, G.timeLeft) + (G.end === 'time' ? sstep(0, 2, G.endT) : 0));
   sun.color.lerpColors(DAY.sun, DOOM.sun, doom); hemi.color.lerpColors(DAY.hemiS, DOOM.hemiS, doom); hemi.groundColor.lerpColors(DAY.hemiG, DOOM.hemiG, doom);
-  hemi.intensity = lerp(1.25, 0.6, doom); amb.intensity = lerp(0.55, 0.3, doom);
-  scene.fog.color.lerpColors(DAY.fog, DOOM.fog, doom); scene.fog.density = lerp(0.0014 + 0.0025 * prog, 0.014, doom) + (G.end === 'time' ? 0.03 * sstep(1.5, 3.2, G.endT) : 0);
-  sky.material.uniforms.uDoom.value = doom; vesMat.emissiveIntensity = lerp(0.04, 1.15, Math.max(doom, prog * prog * 0.25)); vesMat.color.lerpColors(VES_DAY, VES_DOOM, doom); sommaMat.color.lerpColors(SOM_DAY, SOM_DOOM, doom);
-  renderer.toneMappingExposure = lerp(1.2, 0.95, doom);
+  const gloom = clamp(0.35 + 0.65 * prog * prog); hemi.intensity = lerp(lerp(1.0, 0.8, gloom), 0.5, doom) * (1 + G.flashL * 2.5); amb.intensity = lerp(0.42, 0.24, doom);
+  scene.fog.color.lerpColors(DAY.fog, DOOM.fog, doom); scene.fog.density = lerp(0.0045 + 0.005 * prog, 0.016, doom) + (G.end === 'time' ? 0.03 * sstep(1.5, 3.2, G.endT) : 0);
+  sky.material.uniforms.uDoom.value = Math.max(doom, 0.55 + 0.3 * prog); paint.uniforms.doom.value = Math.max(doom, prog * 0.35); paint.uniforms.flash.value = G.flashL; vesMat.emissiveIntensity = lerp(0.04, 1.15, Math.max(doom, prog * prog * 0.25)); vesMat.color.lerpColors(VES_DAY, VES_DOOM, doom); sommaMat.color.lerpColors(SOM_DAY, SOM_DOOM, doom);
+  renderer.toneMappingExposure = lerp(1.05 - 0.1 * prog, 0.85, doom);
+  // lightning in the plume
+  G.flashL = Math.max(0, (G.flashL || 0) - dt * 4); if (G.state === 'play' && Math.random() < dt * lerp(0.08, 0.5, prog)) { G.flashL = R(0.5, 1); craterGlow.material.opacity = 1; setTimeout(() => Sfx.rumble && Sfx.rumble(0.25 + prog * 0.3), 600); }
   // end sequences
   if (G.end) {
     G.endT += dt; const e = G.endT;
@@ -816,9 +823,9 @@ function frame() {
   const cx = camera.position.x, cz = camera.position.z;
   { const sn = 60 / sun.shadow.mapSize.x * 4, sx = Math.round(cx / sn) * sn, sz = Math.round(cz / sn) * sn; sun.position.set(sx + 40, 70, sz - 50); sun.target.position.set(sx, 0, sz - 10); } sun.intensity = lerp(3.5, 1.8, doom) * (1 + doom * (0.05 * Math.sin(t * 3.1) + 0.04 * Math.sin(t * 7.3)));
   sky.position.copy(camera.position); sky.material.uniforms.uTime.value = t;
-  updateSmoke(t, 0.15 + 0.85 * prog * prog, doom); updateFountain(t);
+  updateSmoke(t, G.state === 'start' ? 0.6 : 0.6 + 0.4 * prog, doom, G.flashL); updateFountain(t);
   polishUpdate(dt, t, active, doom, prog);
-  const ashAmt = Math.max(inAsh(player.x, player.z), doom); ash.pts.material.opacity = 0.45 * ashAmt; ash.pts.visible = ashAmt > 0.02; embers.pts.visible = doom > 0.15;
+  const ashAmt = Math.max(inAsh(player.x, player.z), doom, G.state === 'start' ? 0 : 0.25 + 0.55 * prog); ash.pts.material.opacity = 0.5 * ashAmt; ash.pts.visible = ashAmt > 0.02; embers.pts.visible = doom > 0.15 || prog > 0.4;
   updateParticles(ash, t, cx, cz, 0.6, false); updateParticles(embers, t, cx, cz, 0, true);
   craterGlow.material.opacity = lerp(0.25, 0.7, Math.max(doom, prog * 0.4)) + 0.1 * Math.sin(t * 2.3); for (const s of hazes) s.material.rotation = t * 0.02;
   beacon.material.opacity = 0.14 + 0.06 * Math.sin(t * 3); beaconRing.scale.setScalar(1 + 0.06 * Math.sin(t * 3));
@@ -826,7 +833,7 @@ function frame() {
   if (G.state !== 'start') updateHUD(dt, t);
   composer.render();
   fpsAcc += dt; fpsN++; if (fpsAcc > 2) { const fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; window.__fps = fps;
-    if (!TEST && fps < 40 && pixelRatio > 0.9 && G.state !== 'start') { pixelRatio = Math.max(0.9, pixelRatio - 0.1); resize(); } }
+    if (!TEST && fps < 30 && pixelRatio > 1.25 && G.state !== 'start') { pixelRatio = Math.max(1.25, pixelRatio - 0.1); resize(); } }
 }
 reset(); screen('start'); if (MOBILE) initTouch(); $('screen').dataset.kind = 'start';
 Promise.all(['700 30px Rajdhani', '600 30px Rajdhani', '700 30px "Barlow Condensed"'].map(f => document.fonts.load(f))).finally(() => { drawDial(GAME.duration, 1, 100, 0); window.ready = true; });
@@ -1133,7 +1140,7 @@ function animModel(c, dt, panic) {
     const cl = md.rig && md.rig.userData.cloth, want = clip === 'Sit_Floor_Idle' ? 'sit' : 'walk'; if (cl && cl.mode !== want) { cl.mode = want; cl.geo.setAttribute('skinIndex', cl[want][0]); cl.geo.setAttribute('skinWeight', cl[want][1]); } }
   else if (c.state === 'carried') { clip = 'Lie_Idle'; md.wrap.position.y = c.body.position.y - 0.1; }
   else { const sp = c.speed || 0; if (panic > 0.5 && sp > 0.3) { clip = sp > 4 ? 'Sprint' : 'Running_A'; ts = clamp(sp / 4, 0.8, 1.4); } else if (sp > 3.2) { clip = 'Running_A'; ts = clamp(sp / 4.2, 0.7, 1.5); } else if (sp > 0.25) { clip = 'Walking_A'; ts = clamp(sp / 1.4, 0.6, 1.6); }
-    else clip = c.state === 'saved' ? (c.cheerT > 0 ? 'Cheer' : 'Idle') : c.injury ? 'Idle' : 'Talk'; if (c.cheerT > 0) c.cheerT -= dt; }
+    else clip = c.state === 'saved' ? 'Idle' : c.injury ? 'Idle' : 'Talk'; if (c.cheerT > 0) c.cheerT -= dt; }
   const a = md.act[clip] || md.act.Idle; if (a && md.cur !== a) { a.reset(); if (clip === 'Lie_Idle') a.time = a.getClip().duration - 0.01; a.setEffectiveWeight(1).fadeIn(0.3).play(); if (md.cur) md.cur.fadeOut(0.3); md.cur = a; }
   if (a) a.timeScale = ts;
   const dd = Math.hypot(c.pos.x - player.x, c.pos.y - player.z); md.acc += dt; const step = dd > 45 ? 0.1 : dd > 22 ? 0.033 : 0;
@@ -1191,7 +1198,7 @@ function polishUpdate(dt, t, active, doom, prog) {
       Sfx.setCrowd(G.state === 'start' ? 0 : clamp(near / 6) * 0.35 * (1 + panic) + 0.04, panic);
       if (near > 1 && Math.random() < 0.12 && panic < 0.5) Sfx.call();
       if (pigeons.some(p => p.st === 'peck' && Math.hypot(p.g.position.x - player.x, p.g.position.z - player.z) < 8) && Math.random() < 0.15) Sfx.coo();
-      if (doom < 0.3 && Math.random() < 0.1) Sfx.chirp(); }
+      if (false) Sfx.chirp(); }
     if (active) { rumbleT -= dt; if (rumbleT <= 0) { rumbleT = lerp(40, 12, prog) * R(0.7, 1.3); Sfx.rumble(0.4 + prog * 0.6); G.shake = Math.max(G.shake, 0.01 + prog * 0.03); } } }
   if (active) tutUpdate(dt);
 }
@@ -1309,7 +1316,14 @@ function vibUpdate(dt, t, doom) {
   if (waterSparks) { waterSparks.material.opacity = (0.5 + 0.5 * Math.sin(t * 9)) * (1 - doom); waterSparks.material.size = 0.35 + 0.25 * Math.sin(t * 13.7); }
   for (const b of boats) { b.position.y = -0.35 + Math.sin(t * 1.3 + b.position.x) * 0.08; b.rotation.z = Math.sin(t * 1.1 + b.position.z) * 0.04; }
   for (const c of laundry) c.rotation.x = Math.sin(t * 2 + c.userData.sw) * 0.18;
-  sunGlare.position.copy(camera.position).addScaledVector(SUND, 2000); sunGlare.material.opacity = 0.9 * (1 - doom);
+  sunGlare.position.copy(camera.position).addScaledVector(SUND, 2000); sunGlare.material.opacity = 0.35 * (1 - doom); sunGlare.material.color.set('#ff9a50');
   _sv.copy(camera.position).addScaledVector(SUND, 1000).project(camera); const on = _sv.z < 1 && Math.abs(_sv.x) < 1.6 && Math.abs(_sv.y) < 1.6;
   paint.uniforms.sunP.value.set(_sv.x * 0.5 + 0.5, _sv.y * 0.5 + 0.5, on ? (1 - doom) : 0); paint.uniforms.sat.value = lerp(1.25, 1.0, doom);
 }
+
+// ---- compact hints: small, auto-fade after a few seconds, H toggles ----
+(() => { const ids = ['tut', 'objective', 'toast']; const timers = {};
+  const kick = el => { el.classList.remove('hfade'); clearTimeout(timers[el.id]); timers[el.id] = setTimeout(() => el.classList.add('hfade'), el.id === 'toast' ? 3500 : 6000); };
+  for (const id of ids) { const el = document.getElementById(id); if (!el) continue; new MutationObserver(ms => { if (ms.some(r => r.type !== 'attributes' || (r.oldValue || '').replace(/\s*hfade/g, '').trim() !== el.className.replace(/\s*hfade/g, '').trim())) kick(el); }).observe(el, { childList: true, subtree: true, characterData: true, attributes: true, attributeOldValue: true, attributeFilter: ['class'] }); }
+  addEventListener('keydown', e => { if (e.code === 'KeyH' && !e.repeat) { const off = document.body.classList.toggle('nohints'); if (!off) ids.forEach(id => { const el = document.getElementById(id); el && kick(el); }); } });
+})();

@@ -154,7 +154,7 @@ const fillCool = new THREE.DirectionalLight(col('#9ab8e0'), 0.5); fillCool.posit
 // ---------- sky dome ----------
 export const sky = new THREE.Mesh(new THREE.SphereGeometry(2500, 48, 24), new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite: false, fog: false,
-  uniforms: { uTime: { value: 0 }, uDoom: { value: 0 }, top: { value: col('#1e1716') }, ash: { value: col(P.ashSky) }, glow: { value: col(P.lava) }, dTop: { value: col('#1767e0') }, dHor: { value: col('#b4ddff') } },
+  uniforms: { uTime: { value: 0 }, uDoom: { value: 0 }, top: { value: col('#1e1716') }, ash: { value: col(P.ashSky) }, glow: { value: col(P.lava) }, dTop: { value: col('#5e5866') }, dHor: { value: col('#c4a68c') } },
   vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
   fragmentShader: `varying vec3 vP; uniform float uTime, uDoom; uniform vec3 top, ash, glow, dTop, dHor;
   float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);} float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+1.),f.x),f.y);}
@@ -201,12 +201,12 @@ for (let i = 0; i < 170; i++) {
   const h = Math.pow(rnd(), 0.8); const m = new THREE.SpriteMaterial({ map: smokeTex, transparent: true, depthWrite: false, fog: false, rotation: R(0, 6.28) });
   const s = new THREE.Sprite(m); s.userData = { h, ang: R(0, 6.28), rad: R(0, 1), sp: R(0.6, 1.4), sz: R(0.8, 1.3) }; scene.add(s); smoke.push(s);
 }
-export function updateSmoke(t, grow = 1, doom = 0) {
+export function updateSmoke(t, grow = 1, doom = 0, flash = 0) {
   for (const s of smoke) {
     const u = s.userData; const h = (u.h + t * 0.004 * u.sp) % 1;
     const hh = h; const top = grow; const y = craterY + h * 620 * (0.5 + 0.5 * grow), spread = 25 + Math.pow(h, 1.5) * 420 * grow + (h > 0.75 * top ? (h - 0.75 * top) * 900 * grow : 0);
     s.position.set(-40 + Math.cos(u.ang + t * 0.03) * spread * u.rad + h * 120, y, VZ + Math.sin(u.ang) * spread * u.rad * 0.5 + 60);
-    const c = col('#ffb070').lerp(col('#ece8e2'), sstep(0, 0.15, h)).lerp(col('#b8b2ac'), sstep(0.3, 0.9, h)); c.lerp(col('#3a2a24'), doom * sstep(0.05, 0.4, h));
+    const c = col('#ffb070').lerp(col('#7a6e66'), sstep(0, 0.15, h)).lerp(col('#4a423e'), sstep(0.3, 0.9, h)); if (flash > 0) c.lerp(col('#e8dcff'), flash * 0.7 * sstep(0.05, 0.25, h) * (1 - sstep(0.4, 0.7, h))); c.lerp(col('#3a2a24'), doom * sstep(0.05, 0.4, h));
     s.material.color.copy(c).multiplyScalar(lerp(1.5, 1.0, sstep(0, 0.3, h)));
     const sz0 = (25 + hh * 300 * grow) * u.sz; s.scale.set(sz0, sz0, 1);
     s.material.opacity = 0.9 * sstep(0, 0.04, h) * (1 - sstep(0.9, 1, h)) * (1 - sstep(top - 0.12, top, h)); s.material.rotation += 0.001;
