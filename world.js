@@ -12,6 +12,33 @@ export const col = h => new THREE.Color(h);
 export const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 export const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 export const lerp = (a, b, t) => a + (b - a) * t;
+// ---------- graphics quality & CC0 PBR textures (ambientCG) ----------
+const _mob = /[?&]touch=1/.test(location.search) || matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+export const GFX = (() => { const q = new URLSearchParams(location.search).get('gfx') || localStorage.getItem('adam_gfx'); return ['low', 'medium', 'high'].includes(q) ? q : (_mob ? 'low' : 'high'); })();
+export const ANISO = { v: GFX === 'low' ? 2 : 8 };
+const _tl = new THREE.TextureLoader(), _tc = {}, _allTex = [];
+export function setAniso(a) { ANISO.v = a; _allTex.forEach(t => { t.anisotropy = a; t.needsUpdate = true; }); }
+export function ptex(name, rep, normal = false) { // rep = metres per tile
+  const key = name + (normal ? '_n' : GFX === 'low' ? '_lo' : '');
+  const t = _tl.load('textures/' + key + '.jpg'); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1 / rep, 1 / rep);
+  if (!normal) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = ANISO.v; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; _allTex.push(t); return t;
+}
+// PBR-ish world material (UVs are in metres, see boxUV); tint keeps the warm sunny palette
+export function pmat(name, tint, rep = 2, o = {}) {
+  const m = new THREE.MeshStandardMaterial({ color: col(tint), map: ptex(name, rep), roughness: o.rough ?? 0.85, metalness: 0, side: o.side ?? THREE.FrontSide, envMapIntensity: 0 });
+  if (GFX !== 'low' && o.normal !== false) { m.normalMap = ptex(name, rep, true); const k = o.ns ?? 0.8; m.normalScale.set(k, k); }
+  if (o.emissive) { m.emissive = col(o.emissive); m.emissiveIntensity = o.ei ?? 0.12; }
+  return m;
+}
+// box geometry with UVs in metres (so textures keep scale on any size box)
+const _bc = {};
+export function boxUV(sx, sy, sz) {
+  const k = sx.toFixed(2) + ',' + sy.toFixed(2) + ',' + sz.toFixed(2); if (_bc[k]) return _bc[k];
+  const g = new THREE.BoxGeometry(sx, sy, sz), uv = g.attributes.uv; const dims = [[sz, sy], [sz, sy], [sx, sz], [sx, sz], [sx, sy], [sx, sy]];
+  for (let f = 0; f < 6; f++) for (let i = 0; i < 4; i++) { const j = f * 4 + i; uv.setXY(j, uv.getX(j) * dims[f][0], uv.getY(j) * dims[f][1]); }
+  return (_bc[k] = g);
+}
+export function scaleUV(g, su, sv = su) { const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv); return g; }
 // ---------- painterly procedural textures ----------
 export function canvasTex(w, h, draw, repeat = [1, 1], srgb = true) {
   const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); draw(g, w, h);
@@ -156,7 +183,7 @@ const VZ = -430, VH = 215;
   for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i); const a = Math.atan2(z, x);
     const k = 1 + 0.06 * Math.sin(a * 7 + y * 0.03) + 0.04 * Math.sin(a * 19 + y * 0.08) + 0.03 * Math.sin(a * 41); p.setX(i, x * k); p.setZ(i, z * k); }
   g.computeVertexNormals();
-  const m = vesMat = toon({ color: col('#7a6a5a'), map: rockTexDay, emissive: col('#ffffff'), emissiveMap: lavaEmis, emissiveIntensity: 0.5, fog: false, side: THREE.DoubleSide }, '#ffffff', 2.0, 0.08);
+  const m = vesMat = toon({ color: col('#7a6a5a'), map: (() => { const t = ptex('rock', 1); t.repeat.set(36, 10); return t; })(), emissive: col('#ffffff'), emissiveMap: lavaEmis, emissiveIntensity: 0.5, fog: false, side: THREE.DoubleSide }, '#ffffff', 2.0, 0.08);
   const v = new THREE.Mesh(g, m); v.position.set(-40, 0, VZ); v.rotation.y = 1.9; scene.add(v);
   // shoulder ridge (Monte Somma)
   const s = new THREE.Mesh(new THREE.ConeGeometry(260, 140, 64, 1, true), sommaMat = toon({ color: col('#2a211e'), map: rockTexDay, fog: false }, P.lava, 2, 0.2));
@@ -227,29 +254,26 @@ export const boat = new THREE.Vector3(69, 0, -30);
 const inRect = (r, x, z, m = 0) => x > r.x0 - m && x < r.x1 + m && z > r.z0 - m && z < r.z1 + m;
 const rectOverlap = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.z0 < b.z1 && a.z1 > b.z0;
 
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), toon({ color: col('#7a6a5e'), map: groundTex, bumpMap: groundTex, bumpScale: 2 }, P.lava, 3, 0.1));
-groundTex.repeat.set(40, 40);
+const ground = new THREE.Mesh(scaleUV(new THREE.PlaneGeometry(400, 400), 400), pmat('sand', '#f0dcc0', 3, { ns: 0.6 }));
 ground.rotation.x = -Math.PI / 2; ground.position.set(10, 0, -30); ground.receiveShadow = true; scene.add(ground);
 
-// cobbled roads (instanced)
+// paved roads: Pompeian basalt blocks with cart ruts, raised sidewalks with kerbs
+export const roadMat = pmat('street', '#d2b894', 2.4, { ns: 1.0 });
 {
-  const g = new RoundedBoxGeometry(0.5, 0.16, 0.44, 1, 0.05); const m = toon({ color: col('#ffffff'), map: stoneTex, bumpMap: stoneTex, bumpScale: 1.5 }, P.lava, 3, 0.22);
-  const list = []; const roads = streets.map(s => s.dir === 'z' ? { x0: s.x0 + 1.6, x1: s.x1 - 1.6, z0: s.z0, z1: s.z1, dir: 'z' } : { x0: s.x0, x1: s.x1, z0: s.z0 + 1.6, z1: s.z1 - 1.6, dir: 'x' });
-  roads.forEach((r, ri) => {
-    const L = r.dir === 'z' ? [r.z1, r.z0] : [r.x1, r.x0], A = r.dir === 'z' ? [r.x0, r.x1] : [r.z0, r.z1];
-    for (let u = L[0]; u > L[1]; u -= 0.47) for (let v = A[0] + 0.25; v < A[1]; v += 0.53) {
-      const vv = v + R(-0.06, 0.06) + ((Math.round(u / 0.47) % 2) * 0.25), uu = u + R(-0.04, 0.04);
-      const x = r.dir === 'z' ? vv : uu, z = r.dir === 'z' ? uu : vv;
-      if (roads.slice(0, ri).some(o => inRect(o, x, z))) continue;
-      list.push([x, z, r.dir === 'x', Math.abs(Math.abs(vv - (A[0] + A[1]) / 2) - 0.75) < 0.2]);
-    }
+  const sideMat = pmat('sidewalk', '#ffe0b0', 1.6, { ns: 0.6 }), kerbMat = pmat('marble', '#d8ccb8', 1.2), rutMat = new THREE.MeshBasicMaterial({ color: col('#2a2420'), transparent: true, opacity: 0.22, depthWrite: false });
+  const roads = streets.map(s => s.dir === 'z' ? { x0: s.x0 + 1.6, x1: s.x1 - 1.6, z0: s.z0, z1: s.z1, dir: 'z' } : { x0: s.x0, x1: s.x1, z0: s.z0 + 1.6, z1: s.z1 - 1.6, dir: 'x' });
+  streets.forEach((st, i) => { const r = roads[i];
+    const w = r.x1 - r.x0, l = r.z1 - r.z0; const p = new THREE.Mesh(scaleUV(new THREE.PlaneGeometry(w, l), w, l), roadMat); p.rotation.x = -Math.PI / 2; p.position.set((r.x0 + r.x1) / 2, 0.02 + i * 0.002, (r.z0 + r.z1) / 2); p.receiveShadow = true; scene.add(p);
+    for (const o of [-0.75, 0.75]) { const rw = 0.16, rl = (st.dir === 'z' ? l : w); const g = new THREE.PlaneGeometry(st.dir === 'z' ? rw : rl, st.dir === 'z' ? rl : rw); const ru = new THREE.Mesh(g, rutMat); ru.rotation.x = -Math.PI / 2;
+      ru.position.set(st.dir === 'z' ? (r.x0 + r.x1) / 2 + o : (r.x0 + r.x1) / 2, 0.035 + i * 0.002, st.dir === 'z' ? (r.z0 + r.z1) / 2 : (r.z0 + r.z1) / 2 + o); scene.add(ru); }
+    const sides = st.dir === 'z' ? [[st.x0, r.x0], [r.x1, st.x1]] : [[st.z0, r.z0], [r.z1, st.z1]];
+    for (const [u0, u1] of sides) { const sw = u1 - u0, cx = st.dir === 'z' ? (u0 + u1) / 2 : (st.x0 + st.x1) / 2, cz = st.dir === 'z' ? (st.z0 + st.z1) / 2 : (u0 + u1) / 2;
+      const sx = st.dir === 'z' ? sw : st.x1 - st.x0, sz = st.dir === 'z' ? st.z1 - st.z0 : sw;
+      const m = new THREE.Mesh(scaleUV(new THREE.PlaneGeometry(sx, sz), sx, sz), sideMat); m.rotation.x = -Math.PI / 2; m.position.set(cx, 0.08 + i * 0.002, cz); m.receiveShadow = true; scene.add(m);
+      const kx = st.dir === 'z' ? (u0 === st.x0 ? u1 : u0) : cx, kz = st.dir === 'z' ? cz : (u0 === st.z0 ? u1 : u0);
+      const k = new THREE.Mesh(boxUV(st.dir === 'z' ? 0.18 : sx, 0.16, st.dir === 'z' ? sz : 0.18), kerbMat); k.position.set(kx, 0.05, kz); k.receiveShadow = true; scene.add(k); }
   });
-  const im = new THREE.InstancedMesh(g, m, list.length); const d = new THREE.Object3D();
-  list.forEach(([x, z, rot, rut], i) => {
-    d.position.set(x, 0.03 + R(-0.015, 0.02) + (rut ? -0.03 : 0), z); d.rotation.set(R(-0.05, 0.05), R(-0.25, 0.25) + (rot ? Math.PI / 2 : 0), R(-0.05, 0.05)); d.scale.set(R(0.85, 1.05), R(0.8, 1.2), R(0.85, 1.05)); d.updateMatrix(); im.setMatrixAt(i, d.matrix);
-    im.setColorAt(i, col('#9a8d80').lerp(col(rnd() < 0.3 ? '#6a5a50' : '#b0a090'), R(0, 0.6)));
-  });
-  im.receiveShadow = true; scene.add(im);
+  const m = pmat('rock', '#c8beb0', 1);
   for (const z of [-9, -48]) for (const x of [-1.6, 0, 1.6]) { const s = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 0.42, 14), m); s.scale.z = 0.6; s.position.set(x, 0.2, z); s.castShadow = s.receiveShadow = true; scene.add(s); colliders.push({ x, z, r: 0.42 }); }
 }
 
@@ -259,21 +283,25 @@ const amphMat = toon({ color: col('#c06a3a'), map: stoneTex }, P.lava, 2.5, 0.5)
 function amphora(parent, x, z, s = 1, lean = 0) { const a = new THREE.Mesh(amphGeo, amphMat); a.position.set(x, 0.06, z); a.scale.setScalar(s); a.rotation.z = lean; a.castShadow = true; parent.add(a); return a; }
 
 const facadeCols = [[P.plaster, P.paramedicRed], [P.ochre, '#8a2a1e'], ['#c98a5a', '#3a2a40'], [P.plaster, '#7a2a20'], ['#d2a070', null], [P.terracotta, '#2a2030']];
-const facadeMats = facadeCols.map(([b, band]) => toon({ color: col('#ffffff'), map: plasterTex(b, band) }, P.lava, 2.5, 0.25));
+const facadeMats = facadeCols.map(([b, band]) => { const m = pmat('plaster', mix(b, '#ffd8a0', 0.12), 2.5, { ns: 0.9 }); m.userData.band = band; return m; });
+const dadoMats = ['#b03a28', '#8a2a1e', '#c8762e', '#2a2a3a', '#7a2a20'].map(c => pmat('plaster', c, 2.5, { ns: 0.9 }));
+const baseMat = pmat('brick', '#f0d6b8', 2.2, { ns: 1 });
 const darkMat = toon({ color: col('#150e0c') }, P.lava, 3, 0.05);
-export const woodMat = toon({ color: col('#ffffff'), map: woodTex }, P.lava, 3, 0.2);
-const tileMat = toon({ color: col('#ffffff'), map: tileTex }, P.lava, 2, 0.4);
-const colMat = toon({ color: col('#e8d6b8'), map: stoneTex }, P.lava, 2.5, 0.45);
-const clothMats = [clothTex(P.paramedicRed, '#a8442e'), clothTex('#7a3a24', '#9a5a34'), clothTex('#a04020', '#b8743a')].map(t => toon({ color: col('#ffffff'), map: t, side: THREE.DoubleSide }, P.lava, 2, 0.3));
-export const rubMat = toon({ color: col('#b06a40'), map: tileTex }, P.lava, 2, 0.4);
+export const woodMat = pmat('wood', '#e8c8a0', 1.2);
+const tileMat = pmat('roof', '#ffd0b0', 1.4, { ns: 1.2 });
+const colMat = pmat('marble', '#fbf2e4', 1.6, { rough: 0.5, ns: 0.4 });
+const clothMats = ['#ffb8a0', '#fff0a0', '#ffd0c0'].map(c => pmat('fabric', c, 0.6, { side: THREE.DoubleSide, ns: 0.7 }));
+export const rubMat = pmat('rock', '#d8a078', 0.8);
 const boxG = new THREE.BoxGeometry(1, 1, 1);
-const B = (parent, mat, sx, sy, sz, x, y, z, shadow = true) => { const m = new THREE.Mesh(boxG, mat); m.scale.set(sx, sy, sz); m.position.set(x, y, z); m.castShadow = shadow; m.receiveShadow = true; parent.add(m); return m; };
+const B = (parent, mat, sx, sy, sz, x, y, z, shadow = true) => { const tex = mat.isMeshStandardMaterial; const m = new THREE.Mesh(tex ? boxUV(sx, sy, sz) : boxG, mat); if (!tex) m.scale.set(sx, sy, sz); m.position.set(x, y, z); m.castShadow = shadow; m.receiveShadow = true; parent.add(m); return m; };
 
 // building: local front face at x=0 facing +x, spans z in [-w/2,w/2], depth d behind (x<0)
 function building(fx, fz, nx, nz, w, h, opts = {}) {
   const d = 7, m = facadeMats[Math.floor(rnd() * facadeMats.length)];
   const grp = new THREE.Group(); grp.position.set(fx, 0, fz); grp.rotation.y = Math.atan2(-nz, nx); scene.add(grp);
   B(grp, m, d, h, w, -d / 2, h / 2, 0);
+  B(grp, dadoMats[Math.floor(rnd() * dadoMats.length)], 0.04, 1.25, w - 0.02, 0.01, 0.95, 0, false); B(grp, baseMat, 0.1, 0.36, w + 0.02, 0.03, 0.18, 0, false);
+  B(grp, colMat, 0.07, 0.08, w, 0.03, 1.6, 0, false);
   const dw = R(1.2, Math.min(2.2, w - 1.4)), dz = R(-w / 2 + 0.6 + dw / 2, w / 2 - 0.6 - dw / 2);
   B(grp, darkMat, 0.12, 2.6, dw, 0.03, 1.3, dz, false);
   for (const o of [-1, 1]) B(grp, woodMat, 0.22, 2.8, 0.18, 0.05, 1.4, dz + o * dw / 2);
@@ -355,7 +383,7 @@ for (let i = 0; i < 7; i++) amphora(scene, R(6, 8.4), -44 - i * 2.6, R(0.8, 1.1)
   const sh = new THREE.Shape(); sh.moveTo(-6, 0); sh.lineTo(6, 0); sh.lineTo(6, 11); sh.lineTo(-6, 11); sh.lineTo(-6, 0);
   const hole = new THREE.Path(); hole.moveTo(-3.4, 0); hole.lineTo(-3.4, 6); hole.absarc(0, 6, 3.4, Math.PI, 0, true); hole.lineTo(3.4, 0); hole.lineTo(-3.4, 0); sh.holes.push(hole);
   const g = new THREE.ExtrudeGeometry(sh, { depth: 3, bevelEnabled: true, bevelSize: 0.08, bevelThickness: 0.08, curveSegments: 32 });
-  const a = new THREE.Mesh(g, toon({ color: col('#ffffff'), map: plasterTex('#c9a27a', null) }, P.lava, 2.5, 0.4)); a.position.set(0, 0, -70); a.castShadow = a.receiveShadow = true; scene.add(a);
+  const a = new THREE.Mesh(g, pmat('marble', '#f0e0c8', 0.12)); a.position.set(0, 0, -70); a.castShadow = a.receiveShadow = true; scene.add(a);
   B(scene, colMat, 12.8, 0.6, 3.6, 0, 11.2, -68.5);
   for (const x of [-4.6, 4.6]) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 9, 18), colMat); c.position.set(x, 4.5, -66.8); c.castShadow = true; scene.add(c); }
   for (let i = 0; i < 26; i++) { const r = new THREE.Mesh(new THREE.DodecahedronGeometry(R(0.3, 0.9), 0), rnd() < 0.5 ? rubMat : colMat); r.position.set(R(-3.2, 3.2), R(0.1, 1.2), R(-71.5, -68.5)); r.rotation.set(R(0, 3), R(0, 3), 0); r.castShadow = true; scene.add(r); }
@@ -368,11 +396,13 @@ for (let i = 0; i < 7; i++) amphora(scene, R(6, 8.4), -44 - i * 2.6, R(0.8, 1.1)
 // scattered rubble
 for (let i = 0; i < 70; i++) { const s = streets[i % 3]; const r = new THREE.Mesh(new THREE.DodecahedronGeometry(R(0.05, 0.18), 0), rnd() < 0.5 ? rubMat : colMat); r.position.set(R(s.x0, s.x1), 0.12, R(s.z0, s.z1)); r.rotation.set(R(0, 3), R(0, 3), 0); scene.add(r); }
 
+export const export_water = {};
 // ---------- harbor ----------
 {
   const plank = canvasTex(256, 256, (g, w, h) => { for (let y = 0; y < h; y += 32) { g.fillStyle = mix('#6a4a2e', '#4a3220', R(0, 1)); g.fillRect(0, y, w, 30); g.fillStyle = '#1a120a'; g.fillRect(0, y + 30, w, 2); } strokes(g, w, h, ['#2a1a10', '#8a6a4a'], 300, 1, 3, 0.15, 0.3, 14); }, [6, 8]);
-  const dock = new THREE.Mesh(new THREE.BoxGeometry(22, 0.4, 32), toon({ color: col('#ffffff'), map: plank }, P.lava, 3, 0.2)); dock.position.set(61, -0.15, -30); dock.receiveShadow = true; scene.add(dock);
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshPhongMaterial({ color: col('#10202a'), emissive: col('#3a1a0a'), shininess: 80, specular: col('#ff9a50') }));
+  const dock = new THREE.Mesh(new THREE.BoxGeometry(22, 0.4, 32), pmat('planks', '#e8c490', 0.08)); dock.position.set(61, -0.15, -30); dock.receiveShadow = true; scene.add(dock);
+  const waterMat = new THREE.MeshStandardMaterial({ color: col('#2f7f9a'), roughness: 0.15, metalness: 0.1 }); if (GFX !== 'low') { waterMat.normalMap = ptex('fabric', 0.08, true); waterMat.normalScale.set(0.35, 0.35); } waterMat.userData.water = 1; export_water.m = waterMat;
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), waterMat);
   water.rotation.x = -Math.PI / 2; water.position.set(372, -0.7, -30); scene.add(water);
   for (let z = -45; z <= -15; z += 3) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 1.6, 8), woodMat); p.position.set(72, -0.2, z); scene.add(p); }
   // boat

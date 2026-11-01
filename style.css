@@ -157,4 +157,5 @@ body.touch{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-t
 .settings{margin:18px auto 0;display:grid;gap:10px;justify-content:center;font:700 18px "Barlow Condensed";letter-spacing:3px}
 .settings label{display:grid;grid-template-columns:110px 240px 52px;align-items:center;gap:12px;pointer-events:auto}.settings b{color:var(--cyan)}
 .settings input[type=range]{accent-color:#00e5ff;pointer-events:auto}.settings .chk{grid-template-columns:auto;font:600 17px Rajdhani;letter-spacing:1px;cursor:pointer}
+.settings select{background:#10161f;color:#fff;border:1px solid #00e5ff;font:600 16px Rajdhani;padding:4px;pointer-events:auto}#gfxV{font:500 12px Rajdhani;letter-spacing:0;white-space:nowrap}
 .settings input[type=checkbox]{accent-color:#00e5ff;width:18px;height:18px;vertical-align:middle;pointer-events:auto}

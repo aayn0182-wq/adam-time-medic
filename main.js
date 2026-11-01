@@ -5,7 +5,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { scene, P, col, clamp, sstep, lerp, R, toon, sun, sky, updateSmoke, updateFountain, craterGlow, smokeTex, glowTex, hazes, resolve, inHarbor, walkable, streets, harbor, boat, beacon, beaconRing, rubMat, mix, hemi, amb, vesMat, sommaMat, blockers, blockedBy, fountains, fires, stalls, districts, colliders, woodMat } from './world.js';
+import { scene, P, col, clamp, sstep, lerp, R, toon, sun, sky, updateSmoke, updateFountain, craterGlow, smokeTex, glowTex, hazes, resolve, inHarbor, walkable, streets, harbor, boat, beacon, beaconRing, rubMat, mix, hemi, amb, vesMat, sommaMat, blockers, blockedBy, fountains, fires, stalls, districts, colliders, woodMat, GFX, setAniso } from './world.js';
 import { ITEMS, HOTBAR, INJURIES, Inventory } from './items.js';
 import { Sfx } from './audio.js';
 
@@ -13,8 +13,8 @@ const GAME = { duration: 390, maxHp: 100, walk: 4.2, sprint: 7.0, eye: 1.68 };
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.domElement.className = 'gl'; document.body.prepend(renderer.domElement);
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
-scene.fog = new THREE.FogExp2(col('#cfe0ee'), 0.005);
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
+scene.fog = new THREE.FogExp2(col('#cfe0ee'), 0.0028);
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 3000); scene.add(camera);
 sun.shadow.mapSize.set(2048, 2048);
 // ---------- Adam's left forearm + chronometer (camera-attached) ----------
@@ -84,23 +84,17 @@ function drawDial(timeLeft, barFrac, health, hitFlash) {
 function fmt(s) { s = Math.max(0, Math.ceil(s)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; }
 
 // ---------- post-processing (painterly, no grain) ----------
-const composer = new EffectComposer(renderer);
+setAniso(Math.min(renderer.capabilities.getMaxAnisotropy(), GFX === 'low' ? 2 : GFX === 'medium' ? 4 : 8));
+// MSAA render target (crisp edges instead of the old smear filter)
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: GFX === 'low' ? 0 : 4 }));
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.5, 0.55, 0.85); composer.addPass(bloom);
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.22, 0.4, 0.92); composer.addPass(bloom);
 composer.addPass(new OutputPass());
 const paint = new ShaderPass({
   uniforms: { tDiffuse: { value: null }, res: { value: new THREE.Vector2(1, 1) }, navy: { value: col(P.navy) }, lava: { value: col(P.lava) } },
   vertexShader: 'varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
   fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 res; uniform vec3 navy, lava; varying vec2 vUv;
-  #define RAD 1
-  void main(){ vec2 px=1.0/res; vec3 col; vec3 m[4]; vec3 s[4]; for(int k=0;k<4;k++){m[k]=vec3(0.);s[k]=vec3(0.);}
-    for(int j=0;j<=RAD;j++) for(int i=0;i<=RAD;i++){
-      vec3 c0=texture2D(tDiffuse,vUv+vec2(-i,-j)*px).rgb; m[0]+=c0; s[0]+=c0*c0;
-      vec3 c1=texture2D(tDiffuse,vUv+vec2( i,-j)*px).rgb; m[1]+=c1; s[1]+=c1*c1;
-      vec3 c2=texture2D(tDiffuse,vUv+vec2(-i, j)*px).rgb; m[2]+=c2; s[2]+=c2*c2;
-      vec3 c3=texture2D(tDiffuse,vUv+vec2( i, j)*px).rgb; m[3]+=c3; s[3]+=c3*c3; }
-    float n=float((RAD+1)*(RAD+1)); float best=1e9;
-    for(int k=0;k<4;k++){ vec3 mm=m[k]/n; vec3 v=abs(s[k]/n-mm*mm); float sv=v.r+v.g+v.b; if(sv<best){best=sv; col=mm;} }
+  void main(){ vec3 col=texture2D(tDiffuse,vUv).rgb;
     float l=dot(col,vec3(0.299,0.587,0.114));
     col = mix(col, col*0.8+navy*0.25, (1.0-smoothstep(0.0,0.3,l))*0.15);
     col = mix(col, col*vec3(1.06,0.98,0.9)+lava*0.04, smoothstep(0.4,1.0,l)*0.5);
@@ -113,7 +107,8 @@ const TEST = /[?&]test=1/.test(location.search);
 const MOBILE = /[?&]touch=1/.test(location.search) || matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 if (MOBILE) document.body.classList.add('touch');
 const touchMove = { on: false, x: 0, z: 0 };
-let pixelRatio = TEST && !/hq=1/.test(location.search) ? 0.5 : Math.min(devicePixelRatio || 1, MOBILE ? 0.7 : 1);
+const PR = { low: 0.75, medium: 1.25, high: 2 };
+let pixelRatio = TEST && !/hq=1/.test(location.search) ? 0.5 : Math.min(devicePixelRatio || 1, PR[GFX]);
 function resize() {
   renderer.setPixelRatio(pixelRatio); renderer.setSize(innerWidth, innerHeight, false); composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight);
   paint.uniforms.res.value.set(innerWidth * pixelRatio, innerHeight * pixelRatio); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
@@ -764,9 +759,9 @@ function frame() {
   const prog = G.state === 'start' ? 0.1 : clamp(1 - G.timeLeft / GAME.duration), doom = G.state === 'start' ? 0 : clamp(sstep(60, 0, G.timeLeft) + (G.end === 'time' ? sstep(0, 2, G.endT) : 0));
   sun.color.lerpColors(DAY.sun, DOOM.sun, doom); hemi.color.lerpColors(DAY.hemiS, DOOM.hemiS, doom); hemi.groundColor.lerpColors(DAY.hemiG, DOOM.hemiG, doom);
   hemi.intensity = lerp(1.25, 0.6, doom); amb.intensity = lerp(0.55, 0.3, doom);
-  scene.fog.color.lerpColors(DAY.fog, DOOM.fog, doom); scene.fog.density = lerp(0.0045 + 0.003 * prog, 0.016, doom) + (G.end === 'time' ? 0.03 * sstep(1.5, 3.2, G.endT) : 0);
+  scene.fog.color.lerpColors(DAY.fog, DOOM.fog, doom); scene.fog.density = lerp(0.0022 + 0.003 * prog, 0.014, doom) + (G.end === 'time' ? 0.03 * sstep(1.5, 3.2, G.endT) : 0);
   sky.material.uniforms.uDoom.value = doom; vesMat.emissiveIntensity = lerp(0.04, 1.15, Math.max(doom, prog * prog * 0.25)); vesMat.color.lerpColors(VES_DAY, VES_DOOM, doom); sommaMat.color.lerpColors(SOM_DAY, SOM_DOOM, doom);
-  renderer.toneMappingExposure = lerp(1.0, 0.95, doom);
+  renderer.toneMappingExposure = lerp(1.1, 0.95, doom);
   // end sequences
   if (G.end) {
     G.endT += dt; const e = G.endT;
@@ -1046,10 +1041,12 @@ function addSettings() {
   const tutOn = !localStorage.getItem('adam_tut_done');
   $('sBody').insertAdjacentHTML('beforeend', `<div class="settings"><label>MUSIC<input type="range" id="volMusic" min="0" max="1" step="0.02" value="${Sfx.vol.music}"><b id="volMusicV">${Math.round(Sfx.vol.music * 100)}%</b></label>
     <label>SOUND FX<input type="range" id="volSfx" min="0" max="1" step="0.02" value="${Sfx.vol.sfx}"><b id="volSfxV">${Math.round(Sfx.vol.sfx * 100)}%</b></label>
+    <label>GRAPHICS<select id="gfxSel">${['low', 'medium', 'high'].map(q => `<option value="${q}" ${q === GFX ? 'selected' : ''}>${q[0].toUpperCase() + q.slice(1)}</option>`).join('')}</select><b id="gfxV"></b></label>
     <label class="chk"><input type="checkbox" id="tutChk" ${tutOn ? 'checked' : ''}> Show tutorial next run</label></div>`);
   for (const [id, k] of [['volMusic', 'music'], ['volSfx', 'sfx']]) $(id).addEventListener('input', e => { Sfx.setVol(k, +e.target.value); $(id + 'V').textContent = Math.round(e.target.value * 100) + '%'; });
   $('tutChk').addEventListener('change', e => { if (e.target.checked) localStorage.removeItem('adam_tut_done'); else localStorage.setItem('adam_tut_done', '1'); });
-  $('sBody').querySelectorAll('input').forEach(i => ['touchstart', 'mousedown', 'click'].forEach(ev => i.addEventListener(ev, e => e.stopPropagation())));
+  $('gfxSel').addEventListener('change', e => { const q = e.target.value; localStorage.setItem('adam_gfx', q); pixelRatio = Math.min(devicePixelRatio || 1, PR[q]); resize(); renderer.shadowMap.enabled = q !== 'low' || !MOBILE; $('gfxV').textContent = 'textures: next load'; });
+  $('sBody').querySelectorAll('input,select').forEach(i => ['touchstart', 'mousedown', 'click'].forEach(ev => i.addEventListener(ev, e => e.stopPropagation())));
 }
 // ---- tutorial (first run only; re-enable in pause menu) ----
 const tutEl = document.createElement('div'); tutEl.id = 'tut'; $('hud').appendChild(tutEl);
